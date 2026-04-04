@@ -1,0 +1,10 @@
+@use './reset';
+@use './element-variables.scss';
+
+// 暗黑模式下的 ECharts 背景调整
+.dark {
+  .el-card {
+    background-color: #1d1e1f;
+    border-color: #414243;
+  }
+}

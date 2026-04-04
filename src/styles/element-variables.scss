@@ -1,0 +1,249 @@
+/* 覆盖Element Plus默认主题色 */
+:root {
+  // 主色调 - 智慧教育蓝 (#1d4e7c)
+  --el-color-primary: #1d4e7c;
+  --el-color-primary-light-3: #4979a0;
+  --el-color-primary-light-5: #749bc3;
+  --el-color-primary-light-7: #a0bde0;
+  --el-color-primary-light-8: #c8def7;
+  --el-color-primary-light-9: #e8f0fe;
+  --el-color-primary-dark-2: #133b5e;
+
+  // 辅助色
+  --el-color-success: #2e7d5e;
+  --el-color-warning: #d97706;
+  --el-color-danger: #b13e3e;
+  --el-color-info: #647e9e;
+
+  // 文字颜色
+  --el-text-color-primary: #13294b;
+  --el-text-color-regular: #2d4e73;
+  --el-text-color-secondary: #54728c;
+  --el-text-color-placeholder: #8ba3c0;
+
+  // 边框颜色
+  --el-border-color: #d4e5f7;
+  --el-border-color-light: #e2edf8;
+  --el-border-color-lighter: #eaf1fa;
+  --el-border-color-extra-light: #f3f9ff;
+
+  // 背景颜色
+  --el-fill-color: #f3f9ff;
+  --el-fill-color-light: #f8fcff;
+  --el-fill-color-lighter: #fafdff;
+  --el-fill-color-extra-light: #ffffff;
+
+  // 圆角
+  --el-border-radius-base: 20px;
+  --el-border-radius-small: 2px;
+  --el-border-radius-round: 40px;
+  --el-border-radius-circle: 50%;
+
+  // 按钮
+  --el-button-font-weight: 500;
+
+  // 输入框
+  --el-input-border-radius: 40px;
+  --el-input-height: 48px;
+
+  //字体大小
+  --el-form-label-font-size: 16px;
+
+  //组件大小
+  --el-component-size-large: 56px;
+  --el-component-size: 40px;
+  --el-component-size-small: 24px;
+
+  //菜单样式
+  --el-menu-active-color: var(--el-text-color-regular);
+  --el-menu-text-color: var(--el-text-color-primary);
+  --el-menu-hover-text-color: var(--el-text-color-regular);
+  --el-menu-bg-color: var(--el-fill-color-blank);
+  --el-menu-hover-bg-color: var(--el-color-primary-light-9);
+  --el-menu-item-hover-fill: var(--el-color-primary-light-9);
+}
+
+/* 暗黑模式变量  */
+.dark {
+  --el-bg-color: #1a1f2c;
+  --el-bg-color-overlay: #242936;
+  --el-text-color-primary: #e5eaf0;
+}
+
+.el-tree {
+  background: transparent;
+  padding: 20px 28px;
+
+  // 树节点容器
+  .el-tree-node {
+    white-space: normal;
+
+    // 节点内容区
+    &__content {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      height: auto;
+      padding: 10px;
+      margin-bottom: 8px;
+      background: #f9fcff;
+      border-radius: 12px;
+      transition: all 0.3s ease;
+
+      &:hover {
+        background: #e9f0f9;
+      }
+
+      // 当前选中节点（主节点样式）
+      &.is-current {
+        background: #e9f0f9;
+        font-weight: 600;
+
+        .el-tree-node__label {
+          font-weight: 600;
+        }
+      }
+    }
+
+    // 节点标签
+    &__label {
+      flex: 1;
+      font-size: 14px;
+      color: #1f2937;
+    }
+
+    // 展开/折叠图标
+    &__expand-icon {
+      font-size: 12px;
+      color: #6b7280;
+      transition: transform 0.3s ease;
+
+      // 展开状态
+      &.expanded {
+        transform: rotate(90deg);
+      }
+
+      // 隐藏默认图标，使用自定义图标
+      &::before {
+        content: '\f078'; // FontAwesome 下箭头
+        font-family: 'Font Awesome 6 Free';
+        font-weight: 900;
+      }
+    }
+
+    // 子节点容器
+    &__children {
+      margin-left: 40px;
+    }
+  }
+
+  // 自定义节点内容包装器
+  .custom-tree-node {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    width: 100%;
+
+    // 节点图标
+    .node-icon {
+      font-size: 14px;
+      color: #6b7280;
+
+      &.fa-chevron-down {
+        font-size: 12px;
+      }
+
+      &.fa-circle {
+        font-size: 8px;
+      }
+    }
+
+    // 节点文本
+    .node-label {
+      flex: 1;
+      font-size: 14px;
+      color: #1f2937;
+    }
+
+    // 掌握度徽章
+    .mastery-badge {
+      padding: 2px 10px;
+      border-radius: 40px;
+      font-size: 0.75rem;
+      font-weight: 500;
+
+      &.good {
+        background: #dcfce7;
+        color: #166534;
+      }
+
+      &.warning {
+        background: #fff3cd;
+        color: #856404;
+      }
+
+      &.poor {
+        background: #fee2e2;
+        color: #991b1b;
+      }
+    }
+
+    // 百分比文本
+    .percentage {
+      font-size: 13px;
+      color: #6b7280;
+      min-width: 45px;
+      text-align: right;
+    }
+
+    // 进度条
+    .progress-bar {
+      flex: 1;
+      height: 8px;
+      background: #e2e8f0;
+      border-radius: 10px;
+      overflow: hidden;
+      min-width: 100px;
+
+      .progress-fill {
+        height: 100%;
+        background: #1d4e7c;
+        border-radius: 10px;
+        transition: width 0.3s ease;
+      }
+    }
+  }
+
+  // 空状态样式
+  .el-tree__empty-block {
+    min-height: 100px;
+
+    .el-tree__empty-text {
+      color: #9ca3af;
+      font-size: 14px;
+    }
+  }
+}
+
+.el-tree-node {
+  // 第一层节点（根节点）
+  &[aria-level='1'] {
+    .el-tree-node__content.is-current {
+      background: #e9f0f9;
+      font-weight: 600;
+    }
+  }
+
+  // 第二层节点（子节点）
+  &[aria-level='2'] {
+    .custom-tree-node {
+      .node-icon {
+        font-size: 8px;
+
+        &.fa-circle {
+          font-size: 8px;
+        }
+      }
+    }
+  }
+}
