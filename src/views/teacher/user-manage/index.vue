@@ -3,30 +3,28 @@ import { ref, reactive, onMounted, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import * as echarts from 'echarts'
 import StatsCard from './component/stats-card.vue'
+import { userManageApi, tDashboardApi } from '@/api/index.js'
+import { useAuthStore } from '@/stores/index.js'
 
-// ==================== 响应式数据 ====================
+const authStore = useAuthStore()
 const loading = ref(false)
 const selectedRows = ref([])
 
-// 筛选条件
 const searchModel = ref({
   classId: '',
   status: '',
   keyword: ""
 })
 
-// 分页
 const pagination = reactive({
   page: 1,
   pageSize: 20,
   total: 0
 })
 
-// 列表数据
 const studentList = ref([])
 const classList = ref([])
 
-// 统计数据
 const statistics = reactive({
   total: 0,
   active: 0,
@@ -89,93 +87,34 @@ const formRules = {
   ]
 }
 
-// ==================== API 调用 ====================
-// 获取班级列表
 const fetchClassList = async () => {
-  // GET /api/teacher/classes
-  return [
-    { id: 1, name: '高三(1)班', grade: '高三', studentCount: 45 },
-    { id: 2, name: '高三(2)班', grade: '高三', studentCount: 42 },
-    { id: 3, name: '高三(3)班', grade: '高三', studentCount: 38 }
-  ]
+  try {
+    const res = await tDashboardApi.getClassList(authStore.userId)
+    if (res && res.data) {
+      classList.value = res.data
+    }
+  } catch (error) {
+    console.error('获取班级列表失败:', error)
+  }
 }
 
-// 获取学生列表
 const fetchStudentList = async () => {
   loading.value = true
   try {
-    // GET /api/teacher/students
-    // 参数: page, pageSize, keyword, classId, status
-    const params = {
+    const res = await userManageApi.getStudentList({
       page: pagination.page,
       pageSize: pagination.pageSize,
       keyword: searchModel.value.keyword,
       classId: searchModel.value.classId,
       status: searchModel.value.status
+    })
+    if (res && res.data) {
+      studentList.value = res.data.list || []
+      pagination.total = res.data.total
     }
-    // 模拟API响应
-    await new Promise(resolve => setTimeout(resolve, 500))
-    const mockData = {
-      total: 45,
-      list: [
-        {
-          id: 1,
-          studentNo: '2024001',
-          name: '张小明',
-          gender: 'M',
-          className: '高三(1)班',
-          classId: 1,
-          email: 'zhangxm@example.com',
-          phone: '13800138001',
-          status: 'active',
-          lastLoginTime: '2026-03-22 14:30:00',
-          createTime: '2024-09-01',
-          avatar: null
-        },
-        {
-          id: 2,
-          studentNo: '2024002',
-          name: '李华',
-          gender: 'M',
-          className: '高三(1)班',
-          classId: 1,
-          email: 'lihua@example.com',
-          phone: '13800138002',
-          status: 'active',
-          lastLoginTime: '2026-03-21 09:15:00',
-          createTime: '2024-09-01'
-        },
-        {
-          id: 3,
-          studentNo: '2024003',
-          name: '王芳',
-          gender: 'F',
-          className: '高三(1)班',
-          classId: 1,
-          email: 'wangfang@example.com',
-          phone: '13800138003',
-          status: 'frozen',
-          lastLoginTime: '2026-03-10 16:20:00',
-          createTime: '2024-09-01'
-        },
-        {
-          id: 4,
-          studentNo: '2024004',
-          name: '赵雷',
-          gender: 'M',
-          className: '高三(2)班',
-          classId: 2,
-          email: 'zhaolei@example.com',
-          phone: '13800138004',
-          status: 'pending',
-          lastLoginTime: null,
-          createTime: '2026-03-01'
-        }
-      ]
-    }
-    studentList.value = mockData.list
-    pagination.total = mockData.total
-    return mockData
+  } catch (error) {
+    console.error('获取学生列表失败:', error)
+    ElMessage.error('获取学生列表失败')
   } finally {
     loading.value = false
   }
@@ -183,59 +122,88 @@ const fetchStudentList = async () => {
 
 // 获取统计数据
 const fetchStatistics = async () => {
-  // GET /api/teacher/students/statistics
-  return {
-    total: 45,
-    active: 32,
-    frozen: 8,
-    pending: 5,
-    todayActive: 18
+  try {
+    const res = await userManageApi.getStudentStatistics(searchModel.value.classId)
+    if (res && res.data) {
+      Object.assign(statistics, res.data)
+    }
+  } catch (error) {
+    console.error('获取统计数据失败:', error)
   }
 }
 
 // 新增学生
 const addStudent = async (data) => {
-  // POST /api/teacher/student
-  console.log('新增学生:', data)
-  ElMessage.success('新增成功')
+  const res = await userManageApi.addStudent(data)
+  if (res && res.code === 200) {
+    ElMessage.success('新增成功')
+    return true
+  }
+  return false
 }
 
 // 更新学生
 const updateStudent = async (data) => {
-  // PUT /api/teacher/student/${data.id}
-  console.log('更新学生:', data)
-  ElMessage.success('更新成功')
+  const res = await userManageApi.updateStudent(data.id, data)
+  if (res && res.code === 200) {
+    ElMessage.success('更新成功')
+    return true
+  }
+  return false
 }
 
 // 删除学生
 const deleteStudent = async (id) => {
-  // DELETE /api/teacher/student/${id}
-  console.log('删除学生:', id)
-  ElMessage.success('删除成功')
+  const res = await userManageApi.deleteStudent(id)
+  if (res && res.code === 200) {
+    ElMessage.success('删除成功')
+    return true
+  }
+  return false
 }
 
 // 批量操作
 const batchOperation = async (command, ids) => {
-  // POST /api/teacher/students/batch
-  console.log('批量操作:', command, ids)
-  ElMessage.success(`批量${command}成功`)
+  const res = await userManageApi.batchOperation({ command, ids })
+  if (res && res.code === 200) {
+    ElMessage.success(res.message || `批量${command}成功`)
+    return true
+  }
+  return false
 }
 
 // 重置密码
 const resetPassword = async (studentId, newPassword) => {
-  // POST /api/teacher/student/${studentId}/reset-password
-  console.log('重置密码:', studentId, newPassword)
-  ElMessage.success('密码重置成功')
+  const res = await userManageApi.resetPassword(studentId, newPassword)
+  if (res && res.code === 200) {
+    ElMessage.success(res.message || '密码重置成功')
+    return true
+  }
+  return false
+}
+
+// 获取学生活动数据
+const fetchStudentActivity = async (studentId) => {
+  try {
+    const res = await userManageApi.getStudentActivity(studentId)
+    if (res && res.data) {
+      return res.data
+    }
+  } catch (error) {
+    console.error('获取学生活动数据失败:', error)
+  }
+  return { dates: ['03-16', '03-17', '03-18', '03-19', '03-20', '03-21', '03-22'], minutes: [] }
 }
 
 // 批量导入
 const importStudents = async (file) => {
-  // POST /api/teacher/students/import
-  console.log('导入文件:', file)
-  return { success: true, count: 10 }
+  const res = await userManageApi.importStudents(file)
+  if (res && res.code === 200) {
+    return { success: true, count: res.data?.count || 0 }
+  }
+  return { success: false, count: 0 }
 }
 
-// ==================== 辅助函数 ====================
 const getStatusType = (status) => {
   const map = {
     active: 'success',
@@ -259,7 +227,6 @@ const formatDateTime = (dateTime) => {
   return dateTime
 }
 
-// ==================== 事件处理 ====================
 const handleSearch = () => {
   pagination.page = 1
   fetchStudentList()
@@ -268,8 +235,8 @@ const handleSearch = () => {
 const handleFilterChange = () => {
   pagination.page = 1
   fetchStudentList()
+  fetchStatistics()
 }
-
 const handleSelectionChange = (rows) => {
   selectedRows.value = rows
 }
@@ -291,15 +258,57 @@ const handleBatchCommand = (command) => {
   }
   const ids = selectedRows.value.map(row => row.id)
   const commands = {
-    activate: () => batchOperation('activate', ids),
-    freeze: () => batchOperation('freeze', ids),
-    resetPwd: () => batchOperation('resetPwd', ids),
-    delete: () => {
-      ElMessageBox.confirm('确认删除选中的学生吗？', '警告', {
+    activate: () => {
+      ElMessageBox.confirm(`确认激活选中的 ${ids.length} 名学生吗？`, '提示', {
+        confirmButtonText: '确定',
+        cancelButtonText: '取消',
+        type: 'info'
+      }).then(async () => {
+        await batchOperation('activate', ids)
+        await fetchStudentList()
+        await fetchStatistics()
+      })
+    },
+    freeze: () => {
+      ElMessageBox.confirm(`确认冻结选中的 ${ids.length} 名学生吗？`, '提示', {
         confirmButtonText: '确定',
         cancelButtonText: '取消',
         type: 'warning'
-      }).then(() => batchOperation('delete', ids))
+      }).then(async () => {
+        await batchOperation('freeze', ids)
+        await fetchStudentList()
+        await fetchStatistics()
+      })
+    },
+    resetPwd: () => {
+      ElMessageBox.prompt('请输入新密码', '批量重置密码', {
+        confirmButtonText: '确定',
+        cancelButtonText: '取消',
+        inputPattern: /^.{6,}$/,
+        inputErrorMessage: '密码长度不能小于6位'
+      }).then(async ({ value }) => {
+        // 批量重置密码需要单独处理
+        for (const id of ids) {
+          await resetPassword(id, value)
+        }
+        ElMessage.success(`已为 ${ids.length} 名学生重置密码`)
+      })
+    },
+    delete: () => {
+      ElMessageBox.confirm(`确认删除选中的 ${ids.length} 名学生吗？此操作不可恢复！`, '警告', {
+        confirmButtonText: '确定',
+        cancelButtonText: '取消',
+        type: 'warning'
+      }).then(async () => {
+        let successCount = 0
+        for (const id of ids) {
+          const success = await deleteStudent(id)
+          if (success) successCount++
+        }
+        ElMessage.success(`成功删除 ${successCount} 名学生`)
+        await fetchStudentList()
+        await fetchStatistics()
+      })
     }
   }
   commands[command]?.()
@@ -312,10 +321,16 @@ const handleRowCommand = (command, row) => {
       resetPwdDialogVisible.value = true
       break
     case 'activate':
-      updateStudent({ ...row, status: 'active' })
+      updateStudent({ ...row, status: 'active' }).then(() => {
+        fetchStudentList()
+        fetchStatistics()
+      })
       break
     case 'freeze':
-      updateStudent({ ...row, status: 'frozen' })
+      updateStudent({ ...row, status: 'frozen' }).then(() => {
+        fetchStudentList()
+        fetchStatistics()
+      })
       break
     case 'viewGrades':
       viewStudentGrades(row)
@@ -328,7 +343,11 @@ const handleRowCommand = (command, row) => {
         confirmButtonText: '确定',
         cancelButtonText: '取消',
         type: 'warning'
-      }).then(() => deleteStudent(row.id))
+      }).then(async () => {
+        await deleteStudent(row.id)
+        await fetchStudentList()
+        await fetchStatistics()
+      })
       break
   }
 }
@@ -357,39 +376,42 @@ const editStudent = (row) => {
 const viewDetail = (row) => {
   currentStudent.value = row
   detailDrawerVisible.value = true
-  // 延迟加载图表
   setTimeout(() => {
-    initStudentActivityChart()
+    initStudentActivityChart(row.id)
   }, 100)
 }
 
 const viewStudentGrades = (row) => {
-  // 跳转到成绩分析页面
   console.log('查看成绩:', row)
+  // 可以跳转到成绩分析页面
+  // router.push({ path: '/grade-analysis', query: { studentId: row.id } })
 }
 
 const viewStudentActivity = (row) => {
-  // 跳转到活跃度监控页面
   console.log('学习记录:', row)
+  // 可以跳转到活跃度监控页面
 }
 
-const initStudentActivityChart = () => {
+const initStudentActivityChart = async (studentId) => {
   const chartDom = document.getElementById('studentActivityChart')
   if (!chartDom) return
   if (studentActivityChart) {
     studentActivityChart.dispose()
   }
+  
+  const data = await fetchStudentActivity(studentId)
+  
   studentActivityChart = echarts.init(chartDom)
   studentActivityChart.setOption({
     tooltip: { trigger: 'axis' },
     xAxis: {
       type: 'category',
-      data: ['03-16', '03-17', '03-18', '03-19', '03-20', '03-21', '03-22']
+      data: data.dates
     },
     yAxis: { type: 'value', name: '学习时长(分钟)' },
     series: [{
       type: 'line',
-      data: [45, 52, 38, 42, 78, 85, 62],
+      data: data.minutes,
       smooth: true,
       areaStyle: { opacity: 0.3 },
       lineStyle: { color: '#1d4e7c', width: 2 },
@@ -416,14 +438,17 @@ const resetForm = () => {
 
 const submitForm = async () => {
   await formRef.value?.validate()
+  let success
   if (dialogTitle.value === '新增学生') {
-    await addStudent(formData)
+    success = await addStudent(formData)
   } else {
-    await updateStudent(formData)
+    success = await updateStudent(formData)
   }
-  dialogVisible.value = false
-  fetchStudentList()
-  fetchStatistics()
+  if (success) {
+    dialogVisible.value = false
+    await fetchStudentList()
+    await fetchStatistics()
+  }
 }
 
 const confirmResetPassword = async () => {
@@ -435,10 +460,12 @@ const confirmResetPassword = async () => {
     ElMessage.error('密码长度不能小于6位')
     return
   }
-  await resetPassword(resetPwdForm.studentId, resetPwdForm.password)
-  resetPwdDialogVisible.value = false
-  resetPwdForm.password = ''
-  resetPwdForm.confirmPassword = ''
+  const success = await resetPassword(resetPwdForm.studentId, resetPwdForm.password)
+  if (success) {
+    resetPwdDialogVisible.value = false
+    resetPwdForm.password = ''
+    resetPwdForm.confirmPassword = ''
+  }
 }
 
 const showImportDialog = () => {
@@ -446,7 +473,6 @@ const showImportDialog = () => {
 }
 
 const downloadTemplate = () => {
-  // 下载Excel模板
   const link = document.createElement('a')
   link.download = '学生导入模板.xlsx'
   link.href = '/templates/student_import_template.xlsx'
@@ -470,10 +496,10 @@ const beforeUpload = (file) => {
 
 const onImportSuccess = async (response) => {
   if (response.code === 200) {
-    ElMessage.success(`导入成功，共导入 ${response.data.count} 名学生`)
+    ElMessage.success(`导入成功，共导入 ${response.data?.count || 0} 名学生`)
     importDialogVisible.value = false
-    fetchStudentList()
-    fetchStatistics()
+    await fetchStudentList()
+    await fetchStatistics()
   } else {
     ElMessage.error(response.message || '导入失败')
   }
@@ -484,29 +510,22 @@ const onImportError = () => {
 }
 
 const exportToExcel = () => {
-  // GET /api/teacher/students/export?classId=&status=&keyword=
-  const params = new URLSearchParams({
+  const params = {
     classId: searchModel.value.classId || '',
     status: searchModel.value.status || '',
     keyword: searchModel.value.keyword || ''
-  })
-  window.open(`/api/teacher/students/export?${params.toString()}`, '_blank')
+  }
+  userManageApi.exportStudents(params)
 }
 
-// ==================== 监听器 ====================
 watch([() => searchModel.value.classId, () => searchModel.value.status], () => {
   handleFilterChange()
 })
 
-// ==================== 生命周期 ====================
 onMounted(async () => {
-  const [classRes, statsRes] = await Promise.all([
-    fetchClassList(),
-    fetchStatistics()
-  ])
-  classList.value = classRes
-  Object.assign(statistics, statsRes)
+  await fetchClassList()
   await fetchStudentList()
+  await fetchStatistics()
 })
 </script>
 
@@ -579,7 +598,7 @@ onMounted(async () => {
           <template #default="{ row }">
             <div class="student-name">
               <el-avatar :size="32" :src="row.avatar">
-                {{ row.name.charAt(0) }}
+                {{ row.name?.charAt(0) || 'U' }}
               </el-avatar>
               <span>{{ row.name }}</span>
             </div>

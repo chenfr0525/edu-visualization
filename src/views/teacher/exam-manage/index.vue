@@ -5,8 +5,10 @@ import * as echarts from 'echarts'
 import InfoItem from './component/info-item.vue'
 import { exportToPDF } from '@/utils/export'
 import StatCard from './component/stat-card.vue'
+import { tExamApi, tDashboardApi } from '@/api/index.js'
+import { useAuthStore } from '@/stores/index.js'
 
-// ==================== 响应式数据 ====================
+const authStore = useAuthStore()
 const loading = ref(false)
 const saving = ref(false)
 const analysisContentRef = ref(null)
@@ -29,14 +31,12 @@ const pagination = reactive({
 const examList = ref([])
 const classList = ref([])
 
-// 弹窗控制
 const examDialogVisible = ref(false)
 const scoreEntryVisible = ref(false)
 const analysisDialogVisible = ref(false)
 const compareDialogVisible = ref(false)
 const viewScoresDialogVisible = ref(false)
 
-// 考试表单
 const examFormRef = ref(null)
 const examForm = reactive({
   id: null,
@@ -59,7 +59,6 @@ const examRules = {
   fullScore: [{ required: true, message: '请输入满分', trigger: 'blur' }]
 }
 
-// 成绩录入相关
 const currentExam = ref(null)
 const scoreList = ref([])
 const enteredCount = computed(() => {
@@ -67,16 +66,15 @@ const enteredCount = computed(() => {
 })
 
 const entryProgressColor = computed(() => {
-  const percent = (enteredCount.value / currentExam.value?.totalStudents) * 100
+  const total = currentExam.value?.totalStudents || 1
+  const percent = (enteredCount.value / total) * 100
   if (percent >= 100) return '#67c23a'
   if (percent >= 50) return '#409eff'
   return '#e6a23c'
 })
 
-// 分析数据
 const analysisData = ref(null)
 
-// 对比数据
 const compareExamId = ref(null)
 const compareClassIds = ref([])
 const compareData = ref([])
@@ -87,193 +85,108 @@ let pieChart = null
 let rangeBarChart = null
 let compareChart = null
 
-// ==================== API 调用 ====================
-// 获取班级列表
 const fetchClassList = async () => {
-  // GET /api/teacher/classes
-  return [
-    { id: 1, name: '高三(1)班', grade: '高三', studentCount: 45 },
-    { id: 2, name: '高三(2)班', grade: '高三', studentCount: 42 },
-    { id: 3, name: '高三(3)班', grade: '高三', studentCount: 38 },
-    { id: 4, name: '高三(4)班', grade: '高三', studentCount: 44 }
-  ]
+  try {
+    const res = await tDashboardApi.getClassList(authStore.userId)
+    if (res && res.data) {
+      classList.value = res.data
+    }
+  } catch (error) {
+    console.error('获取班级列表失败:', error)
+  }
 }
 
-// 获取考试列表
 const fetchExamList = async () => {
   loading.value = true
   try {
-    // GET /api/teacher/exams
-    const params = {
+    const res = await tExamApi.getExamLists({
       page: pagination.page,
       pageSize: pagination.pageSize,
       classId: searchModel.value.classId,
       type: searchModel.value.examType,
       keyword: searchModel.value.keyword
+    })
+    if (res && res.data) {
+      examList.value = res.data.list || []
+      pagination.total = res.data.total
     }
-    await new Promise(resolve => setTimeout(resolve, 500))
-    const mockData = {
-      total: 12,
-      list: [
-        {
-          id: 1,
-          name: '2026届高三一模考试',
-          type: 'mock',
-          className: '高三(1)班',
-          classId: 1,
-          examDate: '2026-03-15',
-          totalStudents: 45,
-          avgScore: 78.5,
-          highestScore: 98,
-          lowestScore: 52,
-          passRate: 85,
-          excellentRate: 32,
-          status: 'completed'
-        },
-        {
-          id: 2,
-          name: '三角函数单元测试',
-          type: 'unit',
-          className: '高三(1)班',
-          classId: 1,
-          examDate: '2026-03-25',
-          totalStudents: 45,
-          avgScore: null,
-          highestScore: null,
-          lowestScore: null,
-          passRate: null,
-          excellentRate: null,
-          status: 'upcoming'
-        },
-        {
-          id: 3,
-          name: '月考（3月）',
-          type: 'monthly',
-          className: '高三(2)班',
-          classId: 2,
-          examDate: '2026-03-20',
-          totalStudents: 42,
-          avgScore: 72.3,
-          highestScore: 95,
-          lowestScore: 48,
-          passRate: 76,
-          excellentRate: 24,
-          status: 'ongoing'
-        }
-      ]
-    }
-    examList.value = mockData.list
-    pagination.total = mockData.total
-    return mockData
+  } catch (error) {
+    console.error('获取考试列表失败:', error)
+    ElMessage.error('获取考试列表失败')
   } finally {
     loading.value = false
   }
 }
 
-// 创建考试
 const createExam = async (data) => {
-  // POST /api/teacher/exam
-  console.log('创建考试:', data)
-  ElMessage.success('考试创建成功')
+  const res = await tExamApi.createExam(data)
+  if (res && res.code === 200) {
+    ElMessage.success('考试创建成功')
+    return true
+  }
+  return false
 }
 
-// 更新考试
 const updateExam = async (data) => {
-  // PUT /api/teacher/exam/${data.id}
-  console.log('更新考试:', data)
-  ElMessage.success('更新成功')
+  const res = await tExamApi.updateExam(data.id, data)
+  if (res && res.code === 200) {
+    ElMessage.success('更新成功')
+    return true
+  }
+  return false
 }
 
-// 删除考试
 const deleteExam = async (id) => {
-  // DELETE /api/teacher/exam/${id}
-  console.log('删除考试:', id)
-  ElMessage.success('删除成功')
+  const res = await tExamApi.deleteExam(id)
+  if (res && res.code === 200) {
+    ElMessage.success('删除成功')
+    return true
+  }
+  return false
 }
 
-// 获取成绩列表
 const fetchScores = async (examId) => {
-  // GET /api/teacher/exam/${examId}/scores
-  await new Promise(resolve => setTimeout(resolve, 500))
-  return {
-    list: [
-      { id: 1, studentId: 1, studentNo: '2024001', studentName: '张小明', score: null, remark: '', status: 'pending' },
-      { id: 2, studentId: 2, studentNo: '2024002', studentName: '李华', score: null, remark: '', status: 'pending' },
-      { id: 3, studentId: 3, studentNo: '2024003', studentName: '王芳', score: null, remark: '', status: 'pending' },
-      { id: 4, studentId: 4, studentNo: '2024004', studentName: '赵雷', score: null, remark: '', status: 'pending' },
-      { id: 5, studentId: 5, studentNo: '2024005', studentName: '陈晨', score: null, remark: '', status: 'pending' }
-    ]
+  const res = await tExamApi.getExamScores(examId)
+  if (res && res.data) {
+    return { list: res.data.list || [] }
   }
+  return { list: [] }
 }
 
-// 保存成绩
 const saveScoresApi = async (examId, scores) => {
-  // POST /api/teacher/exam/${examId}/scores
-  console.log('保存成绩:', examId, scores)
-  ElMessage.success('成绩保存成功')
-}
-
-// 完成录入并发布
-const publishScoresApi = async (examId) => {
-  // POST /api/teacher/exam/${examId}/publish
-  console.log('发布成绩:', examId)
-  ElMessage.success('成绩已发布')
-}
-
-// 获取成绩分析数据
-const fetchExamAnalysis = async (examId) => {
-  // GET /api/teacher/exam/${examId}/analysis
-  await new Promise(resolve => setTimeout(resolve, 500))
-  return {
-    examName: '2026届高三一模考试',
-    className: '高三(1)班',
-    examDate: '2026-03-15',
-    avgScore: 78.5,
-    highestScore: 98,
-    lowestScore: 52,
-    passRate: 85,
-    excellentRate: 32,
-    standardDeviation: 12.3,
-    scoreDistribution: [
-      { range: '0-59', count: 5, percentage: 11.1 },
-      { range: '60-69', count: 8, percentage: 17.8 },
-      { range: '70-79', count: 12, percentage: 26.7 },
-      { range: '80-89', count: 14, percentage: 31.1 },
-      { range: '90-100', count: 6, percentage: 13.3 }
-    ],
-    gradeDistribution: [
-      { name: '优秀 (≥90)', count: 6, percentage: 13.3, color: '#67c23a' },
-      { name: '良好 (75-89)', count: 18, percentage: 40.0, color: '#409eff' },
-      { name: '及格 (60-74)', count: 14, percentage: 31.1, color: '#e6a23c' },
-      { name: '不及格 (<60)', count: 7, percentage: 15.6, color: '#f56c6c' }
-    ],
-    topStudents: [
-      { rank: 1, studentName: '张小明', studentNo: '2024001', score: 98, improvement: 5 },
-      { rank: 2, studentName: '李华', studentNo: '2024002', score: 95, improvement: 8 },
-      { rank: 3, studentName: '王芳', studentNo: '2024003', score: 92, improvement: -2 }
-    ],
-    classCompare: [
-      { className: '高三(1)班', avgScore: 78.5, highestScore: 98, passRate: 85, excellentRate: 32 },
-      { className: '高三(2)班', avgScore: 72.3, highestScore: 95, passRate: 76, excellentRate: 24 },
-      { className: '高三(3)班', avgScore: 75.8, highestScore: 97, passRate: 81, excellentRate: 28 },
-      { className: '高三(4)班', avgScore: 70.2, highestScore: 92, passRate: 72, excellentRate: 20 }
-    ]
+  const res = await tExamApi.saveExamScores(examId, scores)
+  if (res && res.code === 200) {
+    ElMessage.success('成绩保存成功')
+    return true
   }
+  return false
 }
 
-// 获取班级对比数据
+const publishScoresApi = async (examId) => {
+  const res = await tExamApi.publishExamScores(examId)
+  if (res && res.code === 200) {
+    ElMessage.success('成绩已发布')
+    return true
+  }
+  return false
+}
+
+const fetchExamAnalysis = async (examId) => {
+  const res = await tExamApi.getExamAnalysis(examId)
+  if (res && res.data) {
+    return res.data
+  }
+  return null
+}
+
 const fetchCompareData = async (examId, classIds) => {
-  // GET /api/teacher/exam/${examId}/compare?classIds=1,2,3
-  await new Promise(resolve => setTimeout(resolve, 500))
-  return [
-    { className: '高三(1)班', avgScore: 78.5, highestScore: 98, passRate: 85, excellentRate: 32, rank: 1 },
-    { className: '高三(2)班', avgScore: 72.3, highestScore: 95, passRate: 76, excellentRate: 24, rank: 3 },
-    { className: '高三(3)班', avgScore: 75.8, highestScore: 97, passRate: 81, excellentRate: 28, rank: 2 },
-    { className: '高三(4)班', avgScore: 70.2, highestScore: 92, passRate: 72, excellentRate: 20, rank: 4 }
-  ]
+  const res = await tExamApi.getExamCompare(examId, classIds)
+  if (res && res.data) {
+    return res.data
+  }
+  return []
 }
 
-// ==================== 辅助函数 ====================
 const getExamTypeTag = (type) => {
   const map = { midterm: 'primary', final: 'danger', monthly: 'warning', mock: 'info', unit: 'success' }
   return map[type] || 'info'
@@ -323,7 +236,6 @@ const onScoreChange = (row, index) => {
   console.log('分数变化:', row.studentName, row.score)
 }
 
-// ==================== 事件处理 ====================
 const handleSearch = () => {
   pagination.page = 1
   fetchExamList()
@@ -379,13 +291,16 @@ const resetExamForm = () => {
 
 const submitExam = async () => {
   await examFormRef.value?.validate()
+  let success
   if (examForm.id) {
-    await updateExam(examForm)
+    success = await updateExam(examForm)
   } else {
-    await createExam(examForm)
+    success = await createExam(examForm)
   }
-  examDialogVisible.value = false
-  fetchExamList()
+  if (success) {
+    examDialogVisible.value = false
+    await fetchExamList()
+  }
 }
 
 const handleExamCommand = (command, exam) => {
@@ -407,7 +322,12 @@ const handleExamCommand = (command, exam) => {
         confirmButtonText: '确定',
         cancelButtonText: '取消',
         type: 'warning'
-      }).then(() => deleteExam(exam.id))
+      }).then(async () => {
+        const success = await deleteExam(exam.id)
+        if (success) {
+          await fetchExamList()
+        }
+      }).catch(() => {})
       break
   }
 }
@@ -424,7 +344,9 @@ const continueScoreEntry = async (exam) => {
 }
 
 const resetScoreForm = () => {
-  // 清理临时数据
+  scoreList.value = []
+  currentExam.value = null
+  saving.value = false
 }
 
 const saveScores = async () => {
@@ -436,10 +358,12 @@ const saveScores = async () => {
       score: s.score,
       remark: s.remark
     }))
-    await saveScoresApi(currentExam.value.id, scores)
-    // 更新当前考试状态
-    currentExam.value.status = 'ongoing'
-    await fetchExamList()
+    const success = await saveScoresApi(currentExam.value.id, scores)
+    if (success) {
+      // 更新当前考试状态
+      currentExam.value.status = 'ongoing'
+      await fetchExamList()
+    }
   } finally {
     saving.value = false
   }
@@ -447,13 +371,14 @@ const saveScores = async () => {
 
 const completeScoreEntry = async () => {
   await saveScores()
-  await publishScoresApi(currentExam.value.id)
-  scoreEntryVisible.value = false
-  await fetchExamList()
+  const success = await publishScoresApi(currentExam.value.id)
+  if (success) {
+    scoreEntryVisible.value = false
+    await fetchExamList()
+  }
 }
 
 const importScores = () => {
-  // 导入成绩Excel
   ElMessage.info('批量导入功能开发中')
 }
 
@@ -462,6 +387,7 @@ const exportScoreTemplate = () => {
 }
 
 const viewExamScores = async (exam) => {
+  currentExam.value = exam
   const res = await fetchScores(exam.id)
   scoreList.value = res.list
   viewScoresDialogVisible.value = true
@@ -481,23 +407,17 @@ const initAnalysisCharts = () => {
 
   // 成绩分布直方图
   const histogramDom = document.getElementById('scoreHistogramChart')
-  if (histogramDom) {
+  if (histogramDom && analysisData.value.scoreDistribution?.length) {
     if (histogramChart) histogramChart.dispose()
     histogramChart = echarts.init(histogramDom)
     histogramChart.setOption({
       tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
-      xAxis: {
-        type: 'category',
-        data: analysisData.value.scoreDistribution.map(d => d.range)
-      },
+      xAxis: { type: 'category', data: analysisData.value.scoreDistribution.map(d => d.range) },
       yAxis: { type: 'value', name: '人数' },
       series: [{
         type: 'bar',
         data: analysisData.value.scoreDistribution.map(d => d.count),
-        itemStyle: {
-          borderRadius: [8, 8, 0, 0],
-          color: '#1d4e7c'
-        },
+        itemStyle: { borderRadius: [8, 8, 0, 0], color: '#1d4e7c' },
         label: { show: true, position: 'top' }
       }]
     })
@@ -505,7 +425,7 @@ const initAnalysisCharts = () => {
 
   // 分数段占比饼图
   const pieDom = document.getElementById('scorePieChart')
-  if (pieDom) {
+  if (pieDom && analysisData.value.gradeDistribution?.length) {
     if (pieChart) pieChart.dispose()
     pieChart = echarts.init(pieDom)
     pieChart.setOption({
@@ -524,9 +444,9 @@ const initAnalysisCharts = () => {
     })
   }
 
-  // 分数段条形图
+   // 分数段条形图
   const rangeBarDom = document.getElementById('scoreRangeBarChart')
-  if (rangeBarDom) {
+  if (rangeBarDom && analysisData.value.scoreDistribution?.length) {
     if (rangeBarChart) rangeBarChart.dispose()
     rangeBarChart = echarts.init(rangeBarDom)
     rangeBarChart.setOption({
@@ -540,15 +460,14 @@ const initAnalysisCharts = () => {
           borderRadius: [8, 8, 0, 0],
           color: (params) => {
             const colors = ['#f56c6c', '#e6a23c', '#409eff', '#67c23a', '#67c23a']
-            return colors[params.dataIndex]
+            return colors[params.dataIndex] || '#409eff'
           }
         }
       }]
     })
   }
-
-  // 班级对比图
-  if (analysisData.value.classCompare) {
+    // 班级对比图
+  if (analysisData.value.classCompare?.length) {
     const compareDom = document.getElementById('classCompareChart')
     if (compareDom) {
       if (compareChart) compareChart.dispose()
@@ -567,7 +486,6 @@ const initAnalysisCharts = () => {
     }
   }
 }
-
 const openCompareDialog = async (exam) => {
   compareExamId.value = exam.id
   compareClassIds.value = [exam.classId]
@@ -607,17 +525,17 @@ const exportScores = (exam) => {
 }
 
 const exportExamsData = () => {
-  const params = new URLSearchParams({
+  const params = {
     classId: searchModel.value.classId || '',
     type: searchModel.value.examType || '',
     keyword: searchModel.value.keyword || ''
-  })
-  window.open(`/api/teacher/exams/export?${params.toString()}`, '_blank')
+  }
+  tExamApi.exportExamsData(params)
 }
 
 const exportAnalysisReport = () => {
   if (analysisData.value) {
-    exportToPDF(analysisContentRef.value, "作业分析报告")
+    exportToPDF(analysisContentRef.value, `${analysisData.value.examName}_成绩分析报告`)
   }
 }
 
@@ -627,10 +545,8 @@ const exportScoreSheet = () => {
   }
 }
 
-// ==================== 生命周期 ====================
 onMounted(async () => {
-  const classRes = await fetchClassList()
-  classList.value = classRes
+  await fetchClassList()
   await fetchExamList()
 })
 </script>

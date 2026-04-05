@@ -4,8 +4,10 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import * as echarts from 'echarts'
 import StatsCard from '../user-manage/component/stats-card.vue'
 import { exportToPDF } from '@/utils/export'
+import { tHomeworkApi,tDashboardApi } from '@/api/index.js'
+import { useAuthStore } from '@/stores/index.js'
 
-// ==================== 响应式数据 ====================
+const authStore = useAuthStore()
 const loading = ref(false)
 const activeGradeTab = ref('pending')
 const analysisRef = ref(null)
@@ -62,187 +64,93 @@ const analysisData = ref(null)
 let scoreChart = null
 let accuracyChart = null
 
-// ==================== API 调用 ====================
-// 获取班级列表
 const fetchClassList = async () => {
-  // GET /api/teacher/classes
-  return [
-    { id: 1, name: '高三(1)班', grade: '高三' },
-    { id: 2, name: '高三(2)班', grade: '高三' },
-    { id: 3, name: '高三(3)班', grade: '高三' }
-  ]
+  try {
+    const res = await tDashboardApi.getClassList(authStore.userId)
+    if (res && res.data) {
+      classList.value = res.data
+    }
+  } catch (error) {
+    console.error('获取班级列表失败:', error)
+  }
 }
 
-// 获取作业列表
 const fetchHomeworkList = async () => {
   loading.value = true
   try {
-    // GET /api/teacher/homeworks
-    const params = {
+    const res = await tHomeworkApi.getHomeworkList({
       page: pagination.page,
       pageSize: pagination.pageSize,
       classId: searchModel.value.classId,
       status: searchModel.value.status,
       keyword: searchModel.value.keyword
+    })
+    if (res && res.data) {
+      homeworkList.value = res.data.list || []
+      pagination.total = res.data.total
     }
-    await new Promise(resolve => setTimeout(resolve, 500))
-    const mockData = {
-      total: 8,
-      list: [
-        {
-          id: 1,
-          title: '函数与导数专题练习',
-          className: '高三(1)班',
-          classId: 1,
-          deadline: '2026-03-25 23:59',
-          status: 'ongoing',
-          questionCount: 5,
-          totalCount: 45,
-          submittedCount: 28,
-          gradedCount: 0,
-          submitRate: 62,
-          avgScore: null
-        },
-        {
-          id: 2,
-          title: '三角函数综合测试',
-          className: '高三(1)班',
-          classId: 1,
-          deadline: '2026-03-20 23:59',
-          status: 'pending',
-          questionCount: 8,
-          totalCount: 45,
-          submittedCount: 42,
-          gradedCount: 15,
-          submitRate: 93,
-          avgScore: null
-        },
-        {
-          id: 3,
-          title: '数列求和专项练习',
-          className: '高三(2)班',
-          classId: 2,
-          deadline: '2026-03-18 23:59',
-          status: 'completed',
-          questionCount: 6,
-          totalCount: 42,
-          submittedCount: 40,
-          gradedCount: 40,
-          submitRate: 95,
-          avgScore: 78.5
-        }
-      ]
-    }
-    homeworkList.value = mockData.list
-    pagination.total = mockData.total
-    return mockData
+  } catch (error) {
+    console.error('获取作业列表失败:', error)
+    ElMessage.error('获取作业列表失败')
   } finally {
     loading.value = false
   }
 }
 
-// 获取统计数据
 const fetchStatistics = async () => {
-  // GET /api/teacher/homeworks/statistics
-  return {
-    total: 12,
-    ongoing: 3,
-    pending: 2,
-    completed: 7,
-    avgScore: 76.8
+  try {
+    const res = await tHomeworkApi.getHomeworkStatistics()
+    if (res && res.data) {
+      Object.assign(statistics, res.data)
+    }
+  } catch (error) {
+    console.error('获取统计数据失败:', error)
   }
 }
 
 // 删除作业
 const deleteHomework = async (homework) => {
-  // DELETE /api/teacher/homework/${id}
   ElMessageBox.confirm(`确认删除作业 "${homework.title}" 吗？`, '警告', {
     confirmButtonText: '确定',
     cancelButtonText: '取消',
     type: 'warning'
-  }).then(() => {
-    console.log('删除作业:', homework.id)
-    ElMessage.success('删除成功')
-  })
-
+  }).then(async () => {
+    const res = await tHomeworkApi.deleteHomework(homework.id)
+    if (res && res.code === 200) {
+      ElMessage.success('删除成功')
+      await fetchHomeworkList()
+      await fetchStatistics()
+    }
+  }).catch(() => {})
 }
 
 // 获取作业提交列表
 const fetchSubmissions = async (homeworkId) => {
-  // GET /api/teacher/homework/${homeworkId}/submissions
-  await new Promise(resolve => setTimeout(resolve, 500))
-  return {
-    list: [
-      {
-        id: 1,
-        studentId: 1,
-        studentName: '张小明',
-        studentNo: '2024001',
-        submitTime: '2026-03-22 18:30:00',
-        status: 'pending',
-        content: '已完成所有题目，第3题不太确定...',
-        answers: [
-          { title: '求函数f(x)=x²+2x+1的导数', score: 10, studentAnswer: '2x+2', referenceAnswer: '2x+2', givenScore: null, comment: '' },
-          { title: '证明函数f(x)=x³在R上单调递增', score: 15, studentAnswer: 'f\'(x)=3x²≥0，所以单调递增', referenceAnswer: 'f\'(x)=3x²≥0，所以单调递增', givenScore: null, comment: '' }
-        ]
-      },
-      {
-        id: 2,
-        studentId: 2,
-        studentName: '李华',
-        studentNo: '2024002',
-        submitTime: '2026-03-22 20:15:00',
-        status: 'pending',
-        content: '完成',
-        answers: [
-          { title: '求函数f(x)=x²+2x+1的导数', score: 10, studentAnswer: '2x+1', referenceAnswer: '2x+2', givenScore: null, comment: '' },
-          { title: '证明函数f(x)=x³在R上单调递增', score: 15, studentAnswer: '不会', referenceAnswer: 'f\'(x)=3x²≥0，所以单调递增', givenScore: null, comment: '' }
-        ]
-      }
-    ]
+  const res = await tHomeworkApi.getHomeworkSubmissions(homeworkId)
+  if (res && res.data) {
+    return { list: res.data.list || [] }
   }
+  return { list: [] }
 }
 
 // 提交批改
 const submitGradeApi = async (submissionId, answers, totalScore) => {
-  // POST /api/teacher/homework/submission/${submissionId}/grade
-  console.log('批改提交:', submissionId, answers, totalScore)
-  ElMessage.success('批改成功')
-}
-
-// 获取作业分析数据
-const fetchHomeworkAnalysis = async (homeworkId) => {
-  // GET /api/teacher/homework/${homeworkId}/analysis
-  await new Promise(resolve => setTimeout(resolve, 500))
-  return {
-    avgScore: 78.5,
-    highestScore: 98,
-    lowestScore: 45,
-    passRate: 85,
-    submitRate: 93,
-    scoreDistribution: [
-      { range: '90-100', count: 8 },
-      { range: '80-89', count: 12 },
-      { range: '70-79', count: 10 },
-      { range: '60-69', count: 5 },
-      { range: '<60', count: 5 }
-    ],
-    questionAccuracy: [
-      { index: 1, accuracy: 85, correctCount: 34, totalCount: 40 },
-      { index: 2, accuracy: 72, correctCount: 29, totalCount: 40 },
-      { index: 3, accuracy: 45, correctCount: 18, totalCount: 40 },
-      { index: 4, accuracy: 68, correctCount: 27, totalCount: 40 },
-      { index: 5, accuracy: 92, correctCount: 37, totalCount: 40 }
-    ],
-    wrongQuestions: [
-      { index: 3, title: '已知函数f(x)=ax³+bx²+cx+d，求导并求极值点', errorRate: 55, wrongCount: 22 },
-      { index: 2, title: '求函数y=sin(2x+π/3)的周期和对称轴', errorRate: 28, wrongCount: 11 },
-      { index: 4, title: '证明：对于任意实数x，有e^x ≥ x+1', errorRate: 32, wrongCount: 13 }
-    ]
+  const res = await tHomeworkApi.submitGrade(submissionId, { answers, totalScore })
+  if (res && res.code === 200) {
+    ElMessage.success('批改成功')
+    return true
   }
+  return false
 }
 
-// ==================== 辅助函数 ====================
+const fetchHomeworkAnalysis = async (homeworkId) => {
+  const res = await tHomeworkApi.getHomeworkAnalysis(homeworkId)
+  if (res && res.data) {
+    return res.data
+  }
+  return null
+}
+
 const getStatusType = (status) => {
   const map = {
     ongoing: 'primary',
@@ -273,7 +181,6 @@ const totalScore = computed(() => {
   return currentSubmission.value.answers.reduce((sum, q) => sum + q.score, 0)
 })
 
-// ==================== 事件处理 ====================
 const handleSearch = () => {
   pagination.page = 1
   fetchHomeworkList()
@@ -301,9 +208,8 @@ const goToGrade = async (homework) => {
   gradeDrawerVisible.value = true
 }
 
-
 const openGradeForm = (submission) => {
-  currentSubmission.value = submission
+  currentSubmission.value = { ...submission }
   gradeFormVisible.value = true
 }
 
@@ -313,15 +219,17 @@ const reGrade = (submission) => {
 
 const submitGrade = async () => {
   const total = calculateTotalScore()
-  await submitGradeApi(
+  const success = await submitGradeApi(
     currentSubmission.value.id,
     currentSubmission.value.answers,
     total
   )
-  gradeFormVisible.value = false
-  // 刷新提交列表
-  const res = await fetchSubmissions(currentHomework.value.id)
-  submissionsList.value = res.list
+  if (success) {
+    gradeFormVisible.value = false
+    // 刷新提交列表
+    const res = await fetchSubmissions(currentHomework.value.id)
+    submissionsList.value = res.list
+  }
 }
 
 const viewAnalysis = async (homework) => {
@@ -334,42 +242,34 @@ const viewAnalysis = async (homework) => {
 }
 
 const initAnalysisCharts = () => {
+  if (!analysisData.value) return
+  
   // 成绩分布图
   const scoreChartDom = document.getElementById('scoreDistributionChart')
-  if (scoreChartDom) {
+  if (scoreChartDom && analysisData.value.scoreDistribution?.length) {
     if (scoreChart) scoreChart.dispose()
     scoreChart = echarts.init(scoreChartDom)
     scoreChart.setOption({
       tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
-      xAxis: {
-        type: 'category',
-        data: analysisData.value.scoreDistribution.map(d => d.range)
-      },
+      xAxis: { type: 'category', data: analysisData.value.scoreDistribution.map(d => d.range) },
       yAxis: { type: 'value', name: '人数' },
       series: [{
         type: 'bar',
         data: analysisData.value.scoreDistribution.map(d => d.count),
-        itemStyle: {
-          borderRadius: [8, 8, 0, 0],
-          color: '#1d4e7c'
-        },
+        itemStyle: { borderRadius: [8, 8, 0, 0], color: '#1d4e7c' },
         label: { show: true, position: 'top' }
       }]
     })
   }
 
-  // 各题正确率图
-  const accuracyChartDom = document.getElementById('questionAccuracyChart')
-  if (accuracyChartDom) {
+   const accuracyChartDom = document.getElementById('questionAccuracyChart')
+  if (accuracyChartDom && analysisData.value.questionAccuracy?.length) {
     if (accuracyChart) accuracyChart.dispose()
     accuracyChart = echarts.init(accuracyChartDom)
     accuracyChart.setOption({
       tooltip: { trigger: 'axis', formatter: '{b}<br/>正确率: {c}%' },
       grid: { left: '10%', containLabel: true },
-      xAxis: {
-        type: 'category',
-        data: analysisData.value.questionAccuracy.map(q => `第${q.index}题`)
-      },
+      xAxis: { type: 'category', data: analysisData.value.questionAccuracy.map(q => `第${q.index}题`) },
       yAxis: { type: 'value', name: '正确率(%)', max: 100 },
       series: [{
         type: 'bar',
@@ -389,20 +289,16 @@ const initAnalysisCharts = () => {
   }
 }
 
-
-const exportAnalysisReport = (data) => {
-  console.log('作业分析报告data', data)
-  exportToPDF(analysisRef.value, "作业分析报告")
+const exportAnalysisReport = () => {
+  if (analysisRef.value) {
+    exportToPDF(analysisRef.value, '作业分析报告')
+  }
 }
 
-// ==================== 生命周期 ====================
+
 onMounted(async () => {
-  const [classRes, statsRes] = await Promise.all([
-    fetchClassList(),
-    fetchStatistics()
-  ])
-  classList.value = classRes
-  Object.assign(statistics, statsRes)
+  await fetchClassList()
+  await fetchStatistics()
   await fetchHomeworkList()
 })
 </script>

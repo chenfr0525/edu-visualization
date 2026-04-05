@@ -4,10 +4,15 @@ import EChart from '@/components/EChart.vue'
 import 'echarts-wordcloud'
 import { exportToCSV, exportToImage, exportToPDF } from '@/utils/export'
 import StatBox from '@/views/student/dashboard/component/stat-box.vue'
+import { tDashboardApi, tExamApi } from '@/api/index.js'
+import { useAuthStore } from '@/stores/index.js'
+import { ElMessage } from 'element-plus'
+import { Picture } from '@element-plus/icons-vue'
 
-// ==================== 响应式数据 ====================
 const containerRef = ref(null)
 const loading = ref(false)
+const authStore = useAuthStore()
+
 const searchModel = ref({
   class: '',
   exam: '',
@@ -15,6 +20,12 @@ const searchModel = ref({
 })
 const classList = ref([])
 const examList = ref([])
+const stats = ref({
+  studentCount: 0,
+  avgScore: 0,
+  passRate: 0,
+  pendingHomework: 0
+})
 const knowledgeView = ref('bar')
 const heatmapView = ref('student')
 const gradeEchartData = ref({})
@@ -23,304 +34,184 @@ const weaknessChartData = ref({})
 const heatmapChartData = ref({})
 
 
-// ==================== 模拟API数据 ====================
-// 实际开发中替换为真实API调用
 const fetchClassList = async () => {
-  // GET /api/teacher/classes
-  return [
-    { id: 1, name: '高三(1)班' },
-    { id: 2, name: '高三(2)班' },
-    { id: 3, name: '高三(3)班' }
-  ]
+  const res = await tDashboardApi.getClassList(authStore.userId)
+  if (res && res.data) {
+    classList.value = res.data
+    if (res.data.length) {
+      searchModel.value.class = res.data[0].id
+      await fetchExamList(searchModel.value.class)
+    }
+  }
 }
 
 const fetchExamList = async (classId) => {
-  // GET /api/teacher/exams?classId=1
-  return [
-    { id: 1, name: '期中考试' },
-    { id: 2, name: '一模考试' },
-    { id: 3, name: '二模考试' }
-  ]
+  const res = await tDashboardApi.getExamList(classId)
+  if (res && res.data) {
+    examList.value = res.data
+    if (res.data.length) {
+      searchModel.value.exam = res.data[0].id
+    }
+  }
+}
+
+const fetchStats = async () => {
+  if (!searchModel.value.class) return
+  const res = await tDashboardApi.getStats(searchModel.value.class)
+  if (res && res.data) {
+    stats.value = res.data
+  }
 }
 
 // 成绩分布数据
-const fetchGradeDistribution = async (params) => {
-  // GET /api/teacher/grade-distribution
-  return {
-    categories: ['优(≥90)', '良(75-89)', '中(60-74)', '差(<60)'],
-    data: [8, 14, 10, 3],
-    colors: ['#67c23a', '#409eff', '#e6a23c', '#f56c6c']
+const fetchGradeDistribution = async () => {
+  if (!searchModel.value.class) return
+  const res = await tDashboardApi.getGradeDistribution(
+    searchModel.value.class,
+    searchModel.value.exam
+  )
+  if (res && res.data) {
+    return res.data
   }
+  return { categories: [], data: [], colors: [] }
 }
 
 // 高频错题数据
-const fetchHighFrequencyErrors = async (params) => {
-  // GET /api/teacher/high-frequency-errors
-  return {
-    questions: ['第5题 (三角函数)', '第8题 (函数单调性)', '第2题 (数列求和)', '第10题 (立体几何)', '第3题 (概率计算)'],
-    errorRates: [85, 60, 45, 38, 32],
-    questionIds: [5, 8, 2, 10, 3]
+const fetchHighFrequencyErrors = async () => {
+  if (!searchModel.value.class) return
+  const res = await tDashboardApi.getHighFrequencyErrors(
+    searchModel.value.class,
+    searchModel.value.exam
+  )
+  if (res && res.data) {
+    return res.data
   }
+  return { questions: [], errorRates: [], questionIds: [] }
 }
 
 // 薄弱知识点数据
-const fetchWeakKnowledge = async (params) => {
-  // GET /api/teacher/weak-knowledge
-  return {
-    knowledgePoints: ['三角函数诱导公式', '函数奇偶性判断', '数列通项公式', '立体几何三视图', '概率古典概型'],
-    errorRates: [72, 68, 55, 48, 35],
-    masteryLevels: [28, 32, 45, 52, 65]
+const fetchWeakKnowledge = async () => {
+  if (!searchModel.value.class) return
+  const res = await tDashboardApi.getWeakKnowledge(searchModel.value.class)
+  if (res && res.data) {
+    return res.data
   }
+  return { knowledgePoints: [], errorRates: [], masteryLevels: [] }
 }
 
 // 活跃度热力图数据
-const fetchActivityHeatmap = async (params) => {
-  // GET /api/teacher/activity-heatmap
-  if (heatmapView.value === 'student') {
-    return {
-      type: 'student',
-      students: ['张三', '李四', '王五', '赵六', '钱七', '孙八', '周九', '吴十'],
-      dates: ['3/16', '3/17', '3/18', '3/19', '3/20', '3/21', '3/22'],
-      data: [
-        [45, 52, 38, 42, 78, 85, 62],  // 张三
-        [28, 35, 42, 38, 55, 48, 52],  // 李四
-        [72, 68, 85, 78, 92, 88, 95],  // 王五
-        [15, 22, 18, 25, 32, 28, 35],  // 赵六
-        [55, 48, 52, 58, 62, 55, 60],  // 钱七
-        [38, 42, 35, 48, 52, 58, 55],  // 孙八
-        [82, 78, 85, 88, 92, 85, 90],  // 周九
-        [25, 32, 28, 35, 38, 42, 40]   // 吴十
-      ]
-    }
-  } else {
-    return {
-      type: 'date',
-      dates: ['第1周', '第2周', '第3周', '第4周'],
-      metrics: ['访问次数', '学习时长(min)', '互动次数'],
-      data: [
-        [245, 328, 412, 385],   // 访问次数
-        [1890, 2450, 3100, 2850], // 学习时长
-        [89, 112, 145, 128]     // 互动次数
-      ]
-    }
+const fetchActivityHeatmap = async () => {
+  if (!searchModel.value.class) return
+  const res = await tDashboardApi.getActivityHeatmap(
+    searchModel.value.class,
+    heatmapView.value
+  )
+  if (res && res.data) {
+    return res.data
   }
+  return { type: 'student', students: [], dates: [], data: [] }
 }
 
-// ==================== 图表初始化 ====================
-// 成绩分布直方图
 const initGradeChart = async () => {
-  const data = await fetchGradeDistribution(searchModel)
+  const data = await fetchGradeDistribution()
+  if (!data.categories?.length) return
+  
   gradeEchartData.value = {
-    title: {
-      text: '班级成绩分布直方图'
-    },
-    tooltip: {
-      trigger: 'axis',
-      axisPointer: { type: 'shadow' },
-      formatter: '{b}<br/>人数: {c} 人<br/>占比: {d}%'
-    },
-    legend: {
-      show: true
-    },
-    grid: {
-      left: '3%',
-      right: '4%',
-      bottom: '3%',
-      containLabel: true
-    },
-    xAxis: {
-      type: 'category',
-      data: data.categories,
-      axisLabel: { fontSize: 12 }
-    },
-    yAxis: {
-      type: 'value',
-      name: '人数',
-      nameLocation: 'middle',
-      nameGap: 40
-    },
-    series: [{
-      type: 'bar',
-      data: data.data,
-      itemStyle: {
-        borderRadius: [8, 8, 0, 0],
-        color: (params) => data.colors[params.dataIndex]
-      },
-      label: {
-        show: true,
-        position: 'top',
-        fontWeight: 'bold'
-      }
-    }]
-  }
-  // 绑定点击事件(后续做，点击echart图弹窗，这里gradeChart是echart图实例)
-  // gradeChart.on('click', (params) => {
-  //   console.log('点击了', params.name, '人数:', params.value)
-  //   // 可以弹出详情弹窗
-  // })
-}
-
-// 高频错题条形图
-const initErrorChart = async () => {
-  const data = await fetchHighFrequencyErrors(searchModel)
-  errorChartData.value = {
-    title: {
-      text: '高频错题排行',
-    },
+    title: { text: '班级成绩分布直方图' },
     tooltip: {
       trigger: 'axis',
       axisPointer: { type: 'shadow' },
       formatter: (params) => {
-        return `${params[0].name}<br/>错误率: ${params[0].value}%<br/>建议: 重点讲解`
+        const percent = data.percentages?.[params[0].dataIndex] || 0
+        return `${params[0].name}<br/>人数: ${params[0].value} 人<br/>占比: ${percent}%`
       }
     },
-    grid: {
-      left: '12%',
-      containLabel: true
+    grid: { left: '3%', right: '4%', bottom: '3%', containLabel: true },
+    xAxis: { type: 'category', data: data.categories, axisLabel: { fontSize: 12 } },
+    yAxis: { type: 'value', name: '人数', nameLocation: 'middle', nameGap: 40 },
+    series: [{
+      type: 'bar',
+      data: data.data,
+      itemStyle: { borderRadius: [8, 8, 0, 0], color: (params) => data.colors[params.dataIndex] },
+      label: { show: true, position: 'top', fontWeight: 'bold' }
+    }]
+  }
+}
+
+const initErrorChart = async () => {
+  const data = await fetchHighFrequencyErrors()
+  if (!data.questions?.length) return
+  
+  errorChartData.value = {
+    title: { text: '高频错题排行' },
+    tooltip: {
+      trigger: 'axis',
+      axisPointer: { type: 'shadow' },
+      formatter: (params) => `${params[0].name}<br/>错误率: ${params[0].value}%<br/>建议: 重点讲解`
     },
-    xAxis: {
-      type: 'value',
-      name: '错误率(%)',
-      max: 100,
-      axisLabel: { formatter: '{value}%' }
-    },
-    yAxis: {
-      type: 'category',
-      data: data.questions,
-      axisLabel: { fontSize: 12 }
-    },
+    grid: { left: '12%', containLabel: true },
+    xAxis: { type: 'value', name: '错误率(%)', max: 100, axisLabel: { formatter: '{value}%' } },
+    yAxis: { type: 'category', data: data.questions, axisLabel: { fontSize: 12 } },
     series: [{
       type: 'bar',
       data: data.errorRates,
-      itemStyle: {
-        borderRadius: [0, 8, 8, 0],
-        color: '#e6a23c'
-      },
-      label: {
-        show: true,
-        position: 'right',
-        formatter: '{c}%'
-      }
+      itemStyle: { borderRadius: [0, 8, 8, 0], color: '#e6a23c' },
+      label: { show: true, position: 'right', formatter: '{c}%' }
     }]
   }
-  // 点击条形查看题目详情
-  // errorChart.on('click', (params) => {
-  // const index = params.dataIndex
-  // const questionId = data.questionIds[index]
-  // console.log('查看题目详情:', questionId)
-  // // 弹窗显示题目详情
-  // showQuestionDetail(questionId)
-  // })
 }
 
-// 薄弱知识点图表（支持条形图/词云切换）
 const initKnowledgeChart = async () => {
-  const data = await fetchWeakKnowledge(searchModel)
+  const data = await fetchWeakKnowledge()
+  if (!data.knowledgePoints?.length) return
+  
   if (knowledgeView.value === 'bar') {
     weaknessChartData.value = {
       tooltip: {
         trigger: 'axis',
-        formatter: (params) => {
-          return `${params[0].name}<br/>错误率: ${params[0].value}%<br/>掌握度: ${100 - params[0].value}%`
-        }
+        formatter: (params) => `${params[0].name}<br/>错误率: ${params[0].value}%<br/>掌握度: ${100 - params[0].value}%`
       },
-      grid: {
-        left: '12%',
-        containLabel: true
-      },
-      xAxis: {
-        type: 'value',
-        name: '错误率 (%)',
-        max: 100
-      },
-      yAxis: {
-        type: 'category',
-        data: data.knowledgePoints,
-        axisLabel: { fontSize: 12 }
-      },
+      grid: { left: '12%', containLabel: true },
+      xAxis: { type: 'value', name: '错误率 (%)', max: 100 },
+      yAxis: { type: 'category', data: data.knowledgePoints, axisLabel: { fontSize: 12 } },
       series: [{
         type: 'bar',
         data: data.errorRates,
-        itemStyle: {
-          borderRadius: [0, 8, 8, 0],
-          color: '#f56c6c'
-        },
-        label: {
-          show: true,
-          position: 'right',
-          formatter: '{c}%'
-        }
+        itemStyle: { borderRadius: [0, 8, 8, 0], color: '#f56c6c' },
+        label: { show: true, position: 'right', formatter: '{c}%' }
       }]
     }
   } else {
-    // 使用词云图展示知识点错误率
     weaknessChartData.value = {
-      title: {
-        text: '知识点错误率词云',
-        left: 'center',
-        top: 5,
-        textStyle: {
-          fontSize: 14,
-          fontWeight: 'normal'
-        }
-      },
-      tooltip: {
-        trigger: 'item',
-        formatter: (params) => {
-          return `${params.name}<br/>错误率: ${params.value}%<br/>掌握度: ${100 - params.value}%`
-        }
-      },
+      title: { text: '知识点错误率词云', left: 'center', top: 5 },
+      tooltip: { trigger: 'item', formatter: (params) => `${params.name}<br/>错误率: ${params.value}%` },
       series: [{
         type: 'wordCloud',
-        shape: 'star',  // 形状：circle, cardioid, diamond, triangle-forward, star 等
-        left: 'center',
-        top: 'middle',
+        shape: 'star',
         width: '90%',
         height: '85%',
-        sizeRange: [16, 50],  // 字体大小范围
-        rotationRange: [-45, 45],  // 旋转角度范围，让词云更生动
-        rotationStep: 15,
-        gridSize: 8,
-        drawOutOfBound: false,
-        layoutAnimation: true,
+        sizeRange: [16, 50],
+        rotationRange: [-45, 45],
         textStyle: {
           fontFamily: 'sans-serif',
-          fontWeight: 'normal',
           color: (value) => {
-            // 根据错误率设置颜色：高错误率红色，中等橙色，低错误率蓝色
             const errorRate = value.data[1]
-            if (errorRate > 60) return '#f56c6c'  // 红色 - 严重薄弱
-            if (errorRate > 30) return '#e6a23c'  // 橙色 - 需要关注
-            return '#409eff'  // 蓝色 - 掌握较好
-          },
-          fontSize: (value) => {
-            // 根据错误率动态调整字体大小
-            return Math.max(16, Math.min(50, value.data[1] / 2 + 20))
+            if (errorRate > 60) return '#f56c6c'
+            if (errorRate > 30) return '#e6a23c'
+            return '#409eff'
           }
         },
-        emphasis: {
-          focus: 'self',
-          textStyle: {
-            fontWeight: 'bold',
-            shadowBlur: 10,
-            shadowColor: 'rgba(0, 0, 0, 0.3)'
-          }
-        },
-        data: data.knowledgePoints.map((name, i) => ({
-          name: name,
-          value: data.errorRates[i]
-        }))
+        data: data.knowledgePoints.map((name, i) => ({ name, value: data.errorRates[i] }))
       }]
     }
   }
 }
 
-// 活跃度热力图
 const initHeatmapChart = async () => {
-  const data = await fetchActivityHeatmap(searchModel)
+  const data = await fetchActivityHeatmap()
+  if (!data) return
 
-  if (heatmapView.value === 'student') {
-    // 学生×日期热力图
+  if (heatmapView.value === 'student' && data.type === 'student') {
     const xAxisData = data.dates
     const yAxisData = data.students
     const seriesData = []
@@ -332,46 +223,18 @@ const initHeatmapChart = async () => {
     heatmapChartData.value = {
       tooltip: {
         position: 'top',
-        formatter: (params) => {
-          return `${yAxisData[params.value[1]]}<br/>${xAxisData[params.value[0]]}<br/>学习时长: ${params.value[2]}分钟`
-        }
+        formatter: (params) => `${yAxisData[params.value[1]]}<br/>${xAxisData[params.value[0]]}<br/>学习时长: ${params.value[2]}分钟`
       },
-      xAxis: {
-        type: 'category',
-        data: xAxisData,
-        splitArea: { show: true }
-      },
-      yAxis: {
-        type: 'category',
-        data: yAxisData,
-        splitArea: { show: true }
-      },
+      xAxis: { type: 'category', data: xAxisData, splitArea: { show: true } },
+      yAxis: { type: 'category', data: yAxisData, splitArea: { show: true } },
       visualMap: {
-        min: 0,
-        max: 100,
-        calculable: true,
-        orient: 'horizontal',
-        left: 'center',
-        bottom: 0,
-        inRange: {
-          color: ['#b3cde0', '#5f9bc0', '#1d4e7c']
-        },
-        text: ['高', '低']
+        min: 0, max: 100, calculable: true, orient: 'horizontal',
+        left: 'center', bottom: 0,
+        inRange: { color: ['#b3cde0', '#5f9bc0', '#1d4e7c'] }
       },
-      series: [{
-        type: 'heatmap',
-        data: seriesData,
-        label: { show: false },
-        emphasis: {
-          itemStyle: {
-            shadowBlur: 10,
-            shadowColor: 'rgba(0,0,0,0.5)'
-          }
-        }
-      }]
+      series: [{ type: 'heatmap', data: seriesData, label: { show: false } }]
     }
   } else {
-    // 按日期趋势图（折线图）
     heatmapChartData.value = {
       tooltip: { trigger: 'axis' },
       legend: { data: data.metrics },
@@ -381,85 +244,69 @@ const initHeatmapChart = async () => {
         { type: 'value', name: '学习时长(min)', position: 'right' }
       ],
       series: [
-        {
-          name: data.metrics[0],
-          type: 'line',
-          data: data.data[0],
-          smooth: true,
-          lineStyle: { color: '#409eff' },
-          symbol: 'circle'
-        },
-        {
-          name: data.metrics[1],
-          type: 'line',
-          data: data.data[1],
-          smooth: true,
-          yAxisIndex: 1,
-          lineStyle: { color: '#67c23a' },
-          symbol: 'diamond'
-        },
-        {
-          name: data.metrics[2],
-          type: 'bar',
-          data: data.data[2],
-          barWidth: '30%',
-          itemStyle: { color: '#e6a23c', borderRadius: [4, 4, 0, 0] }
-        }]
+        { name: data.metrics[0], type: 'line', data: data.data[0], smooth: true, lineStyle: { color: '#409eff' } },
+        { name: data.metrics[1], type: 'line', data: data.data[1], smooth: true, yAxisIndex: 1, lineStyle: { color: '#67c23a' } },
+        { name: data.metrics[2], type: 'bar', data: data.data[2], barWidth: '30%', itemStyle: { color: '#e6a23c', borderRadius: [4, 4, 0, 0] } }
+      ]
     }
   }
 }
 
-// ==================== 导出功能 ====================
-// 导出单个图表为图片
 const handleExportImage = () => {
   exportToImage(containerRef.value, '教学看板')
 }
 
-// 导出所有图表为PDF
 const handleExportPDF = () => {
   exportToPDF(containerRef.value, `${searchModel.class} 教学看板`)
 }
 
-// 导出原始数据CSV
 const exportDataCSV = async () => {
-  // 收集所有数据
-  const gradeData = await fetchGradeDistribution(searchModel)
-  const errorData = await fetchHighFrequencyErrors(searchModel)
-  const knowledgeData = await fetchWeakKnowledge(searchModel)
+  const gradeData = await fetchGradeDistribution()
+  const errorData = await fetchHighFrequencyErrors()
+  const knowledgeData = await fetchWeakKnowledge()
 
-  // 构建CSV内容
   let csvContent = '=== 成绩分布 ===\n'
   csvContent += '等级,人数\n'
-  gradeData.categories.forEach((cat, i) => {
+  gradeData.categories?.forEach((cat, i) => {
     csvContent += `${cat},${gradeData.data[i]}\n`
   })
   csvContent += '\n=== 高频错题 ===\n'
   csvContent += '题目,错误率(%)\n'
-  errorData.questions.forEach((q, i) => {
+  errorData.questions?.forEach((q, i) => {
     csvContent += `${q},${errorData.errorRates[i]}\n`
   })
   csvContent += '\n=== 薄弱知识点 ===\n'
   csvContent += '知识点,错误率(%)\n'
-  knowledgeData.knowledgePoints.forEach((kp, i) => {
+  knowledgeData.knowledgePoints?.forEach((kp, i) => {
     csvContent += `${kp},${knowledgeData.errorRates[i]}\n`
   })
   exportToCSV(csvContent, '教学看板数据')
 }
 
-// ==================== 交互事件 ====================
-const handleFilterChange = () => {
-  refreshData()
+const handleFilterChange = async () => {
+  if (searchModel.value.class) {
+    await fetchExamList(searchModel.value.class)
+    refreshData()
+  }
 }
 
 const refreshData = async () => {
   loading.value = true
-  await Promise.all([
-    initGradeChart(),
-    initErrorChart(),
-    initKnowledgeChart(),
-    initHeatmapChart()
-  ])
-  loading.value = false
+  try {
+    await Promise.all([
+      fetchStats(),
+      initGradeChart(),
+      initErrorChart(),
+      initKnowledgeChart(),
+      initHeatmapChart()
+    ])
+    ElMessage.success('数据已刷新')
+  } catch (error) {
+    console.error('刷新数据失败:', error)
+    ElMessage.error('数据加载失败')
+  } finally {
+    loading.value = false
+  }
 }
 
 const updateKnowledgeChart = () => {
@@ -470,30 +317,9 @@ const updateHeatmapChart = () => {
   initHeatmapChart()
 }
 
-updateHeatmapChart
-
-const showDetail = (type) => {
-  console.log('查看详情:', type)
-  // 可弹出详情弹窗
-}
-
-const showQuestionDetail = (questionId) => {
-  console.log('显示题目详情:', questionId)
-  // 弹窗显示题目内容、解析、相似题推荐等
-}
-
-// ==================== 生命周期 ====================
-onMounted(() => {
-  // 加载班级列表
-  fetchClassList().then(res => {
-    classList.value = res
-    if (res.length) searchModel.value.class = res[0].id
-    return fetchExamList(searchModel.value.class)
-  }).then(res => {
-    examList.value = res
-    if (res.length) searchModel.value.exam = res[0].id
-    refreshData()
-  })
+onMounted(async () => {
+  await fetchClassList()
+  await refreshData()
 })
 </script>
 
@@ -503,18 +329,18 @@ onMounted(() => {
       <el-form inline label-width="80" :model="searchModel" class="select-box">
         <el-form-item label="班级" prop="class">
           <el-select size="large" placeholder="请选择班级" style="width: 240px" v-model="searchModel.class"
-            @click="handleFilterChange">
+            @change="handleFilterChange">
             <el-option v-for="item in classList" :key="item.id" :label="item.name" :value="item.id" />
           </el-select>
         </el-form-item>
         <el-form-item label="考试" prop="exam">
-          <el-select size="large" placeholder="请选择考试" style="width: 240px" v-model="searchModel.exam">
+          <el-select size="large" placeholder="请选择考试" style="width: 240px" v-model="searchModel.exam"  @change="handleFilterChange">
             <el-option v-for="item in examList" :key="item.id" :label="item.name" :value="item.id" />
           </el-select>
         </el-form-item>
         <el-form-item label="时间范围" prop="dateRange">
           <el-date-picker v-model="searchModel.dateRange" type="daterange" range-separator="至" start-placeholder="开始日期"
-            end-placeholder="结束日期" />
+            end-placeholder="结束日期" @change="handleFilterChange" />
         </el-form-item>
       </el-form>
       <div class="export-btns">

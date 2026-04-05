@@ -3,8 +3,10 @@ import { ref, reactive, onMounted, watch } from 'vue'
 import * as echarts from 'echarts'
 import OverviewCard from './component/overview-card.vue'
 import { exportToPDF } from '@/utils/export'
+import { tDashboardApi,tClassGradeApi, tExamApi } from '@/api/index.js'
+import { useAuthStore } from '@/stores/index.js'
 
-// ==================== 响应式数据 ====================
+const authStore = useAuthStore()
 const loading = ref(false)
 const searchKeyword = ref('')
 const sortField = ref('score_desc')
@@ -103,112 +105,90 @@ const getStatusText = (score, passScore) => {
   return '不及格'
 }
 
-// ==================== API 调用 ====================
-// 获取班级列表
+
 const fetchClassList = async () => {
-  // GET /api/teacher/classes
-  await new Promise(resolve => setTimeout(resolve, 300))
-  return [
-    { id: 1, name: '高三(1)班', grade: '高三', studentCount: 45 },
-    { id: 2, name: '高三(2)班', grade: '高三', studentCount: 42 },
-    { id: 3, name: '高三(3)班', grade: '高三', studentCount: 38 },
-    { id: 4, name: '高三(4)班', grade: '高三', studentCount: 44 }
-  ]
+  try {
+    const res = await tDashboardApi.getClassList(authStore.userId)
+    if (res && res.data) {
+      classList.value = res.data
+    }
+  } catch (error) {
+    console.error('获取班级列表失败:', error)
+  }
 }
 
-// 获取考试列表
 const fetchExamList = async (classId) => {
-  // GET /api/teacher/exams?classId=
-  await new Promise(resolve => setTimeout(resolve, 300))
-  return [
-    { id: 1, name: '2026届高三一模考试', date: '2026-03-15', type: 'mock' },
-    { id: 2, name: '月考（3月）', date: '2026-03-20', type: 'monthly' },
-    { id: 3, name: '三角函数单元测试', date: '2026-03-25', type: 'unit' },
-    { id: 4, name: '期中考试', date: '2026-04-15', type: 'midterm' }
-  ]
+  if (!classId) return []
+  try {
+    const res = await tDashboardApi.getExamList(classId)
+    if (res && res.data) {
+      return res.data
+    }
+  } catch (error) {
+    console.error('获取考试列表失败:', error)
+  }
+  return []
 }
 
 // 获取班级成绩统计
 const fetchGradeStats = async () => {
-  // GET /api/teacher/class/{classId}/grade-stats?examId=
-  await new Promise(resolve => setTimeout(resolve, 300))
-  return {
-    avgScore: 78.5,
-    highestScore: 98,
-    highestStudent: '张小明',
-    lowestScore: 52,
-    lowestStudent: '赵雷',
-    passRate: 85,
-    excellentRate: 32,
-    standardDeviation: 12.3,
-    passScore: 60,
-    scoreTrend: 3.5
+  if (!searchModel.value.classId || !searchModel.value.examId) return
+  try {
+    const res = await tClassGradeApi.getGradeStats(searchModel.value.classId, searchModel.value.examId)
+    if (res && res.data) {
+      Object.assign(gradeStats, res.data)
+    }
+  } catch (error) {
+    console.error('获取班级统计失败:', error)
   }
 }
 
 // 获取分数段分布
 const fetchScoreDistribution = async () => {
-  // GET /api/teacher/class/{classId}/score-distribution?examId=
-  await new Promise(resolve => setTimeout(resolve, 300))
-  return {
-    ranges: [
-      { name: '90-100', min: 90, max: 100, count: 6, percent: 13.3, color: '#67c23a' },
-      { name: '80-89', min: 80, max: 89, count: 14, percent: 31.1, color: '#409eff' },
-      { name: '70-79', min: 70, max: 79, count: 12, percent: 26.7, color: '#909399' },
-      { name: '60-69', min: 60, max: 69, count: 8, percent: 17.8, color: '#e6a23c' },
-      { name: '<60', min: 0, max: 59, count: 5, percent: 11.1, color: '#f56c6c' }
-    ]
+  if (!searchModel.value.classId || !searchModel.value.examId) return
+  try {
+    const res = await tClassGradeApi.getScoreDistribution(searchModel.value.classId, searchModel.value.examId)
+    if (res && res.data) {
+      scoreRanges.value = res.data.ranges || []
+    }
+  } catch (error) {
+    console.error('获取分数段分布失败:', error)
   }
 }
 
 // 获取成绩趋势数据
 const fetchTrendData = async () => {
-  // GET /api/teacher/class/{classId}/grade-trend
-  await new Promise(resolve => setTimeout(resolve, 300))
-  return {
-    exams: ['月考1', '月考2', '期中', '月考3', '期末'],
-    avgScore: [72, 75, 78, 76, 82],
-    highestScore: [95, 96, 98, 97, 99],
-    lowestScore: [48, 52, 55, 50, 58],
-    compareAvg: [70, 73, 75, 74, 78]
+  if (!searchModel.value.classId) return
+  try {
+    const res = await tClassGradeApi.getClassGradeTrend(searchModel.value.classId)
+    if (res && res.data) {
+      return res.data
+    }
+  } catch (error) {
+    console.error('获取趋势数据失败:', error)
   }
+  return null
 }
 
 // 获取学生成绩列表
 const fetchStudentScores = async () => {
+  if (!searchModel.value.classId || !searchModel.value.examId) return
+  
   loading.value = true
   try {
-    // GET /api/teacher/class/{classId}/scores?examId=&compareExamId=
-    await new Promise(resolve => setTimeout(resolve, 500))
-    totalStudents.value = 45
-    const mockData = [
-      { id: 1, studentNo: '2024001', studentName: '张小明', score: 98, previousScore: 92, improvement: 6, rankChange: -3, status: 'active', className: '高三(1)班' },
-      { id: 2, studentNo: '2024002', studentName: '李华', score: 85, previousScore: 78, improvement: 7, rankChange: -5, status: 'active', className: '高三(1)班' },
-      { id: 3, studentNo: '2024003', studentName: '王芳', score: 92, previousScore: 88, improvement: 4, rankChange: -2, status: 'active', className: '高三(1)班' },
-      { id: 4, studentNo: '2024004', studentName: '赵雷', score: 52, previousScore: 58, improvement: -6, rankChange: 8, status: 'active', className: '高三(1)班' },
-      { id: 5, studentNo: '2024005', studentName: '陈晨', score: 75, previousScore: 72, improvement: 3, rankChange: -1, status: 'active', className: '高三(1)班' },
-      { id: 6, studentNo: '2024006', studentName: '刘洋', score: 88, previousScore: 82, improvement: 6, rankChange: -4, status: 'active', className: '高三(1)班' },
-      { id: 7, studentNo: '2024007', studentName: '周婷', score: 62, previousScore: 65, improvement: -3, rankChange: 3, status: 'active', className: '高三(1)班' },
-      { id: 8, studentNo: '2024008', studentName: '吴迪', score: 95, previousScore: 90, improvement: 5, rankChange: -3, status: 'active', className: '高三(1)班' }
-    ]
-    // 添加更多学生数据...
-    for (let i = 9; i <= 45; i++) {
-      mockData.push({
-        id: i,
-        studentNo: `20240${i.toString().padStart(2, '0')}`,
-        studentName: `学生${i}`,
-        score: Math.floor(Math.random() * 50) + 50,
-        previousScore: Math.floor(Math.random() * 50) + 50,
-        improvement: Math.floor(Math.random() * 20) - 10,
-        rankChange: Math.floor(Math.random() * 15) - 7,
-        status: 'active',
-        className: '高三(1)班'
-      })
+    const res = await tClassGradeApi.getStudentScores(
+      searchModel.value.classId,
+      searchModel.value.examId,
+      searchModel.value.compareExamId
+    )
+    if (res && res.data) {
+      studentScores.value = res.data.list || []
+      totalStudents.value = res.data.total || studentScores.value.length
+      pagination.total = studentScores.value.length
+      sortStudents()
     }
-    studentScores.value = mockData
-    pagination.total = mockData.length
-    sortStudents()
-    return mockData
+  } catch (error) {
+    console.error('获取学生成绩失败:', error)
   } finally {
     loading.value = false
   }
@@ -216,40 +196,39 @@ const fetchStudentScores = async () => {
 
 // 获取进步/退步榜
 const fetchProgressAndDecline = async () => {
-  // GET /api/teacher/class/{classId}/progress-rank?examId=&compareExamId=
-  await new Promise(resolve => setTimeout(resolve, 300))
-  return {
-    progress: [
-      { studentName: '李华', studentNo: '2024002', currentScore: 85, previousScore: 78, improvement: 7, rankChange: -5 },
-      { studentName: '张小明', studentNo: '2024001', currentScore: 98, previousScore: 92, improvement: 6, rankChange: -3 },
-      { studentName: '刘洋', studentNo: '2024006', currentScore: 88, previousScore: 82, improvement: 6, rankChange: -4 }
-    ],
-    decline: [
-      { studentName: '赵雷', studentNo: '2024004', currentScore: 52, previousScore: 58, decline: 6, rankChange: 8 },
-      { studentName: '周婷', studentNo: '2024007', currentScore: 62, previousScore: 65, decline: 3, rankChange: 3 }
-    ]
+  if (!searchModel.value.classId || !searchModel.value.examId) return
+  try {
+    const res = await tClassGradeApi.getProgressRank(
+      searchModel.value.classId,
+      searchModel.value.examId,
+      searchModel.value.compareExamId
+    )
+    if (res && res.data) {
+      progressList.value = res.data.progress || []
+      declineList.value = res.data.decline || []
+    }
+  } catch (error) {
+    console.error('获取进步退步榜失败:', error)
   }
 }
 
 // 获取学生成绩趋势
 const fetchStudentTrend = async (studentId) => {
-  // GET /api/teacher/student/{studentId}/grade-trend
-  await new Promise(resolve => setTimeout(resolve, 300))
-  return {
-    exams: ['月考1', '月考2', '期中', '月考3', '期末'],
-    scores: [72, 78, 85, 82, 92],
-    avgScore: 81.8,
-    highestScore: 92,
-    lowestScore: 72,
-    trend: 20
+  try {
+    const res = await tClassGradeApi.getStudentGradeTrend(studentId)
+    if (res && res.data) {
+      return res.data
+    }
+  } catch (error) {
+    console.error('获取学生趋势失败:', error)
   }
+  return null
 }
 
 // ==================== 图表初始化 ====================
 // 成绩分布图
 const initDistributionChart = async () => {
-  const data = await fetchScoreDistribution()
-  scoreRanges.value = data.ranges
+  await fetchScoreDistribution()
 
   const chartDom = document.getElementById('distributionChart')
   if (!chartDom) return
@@ -258,14 +237,14 @@ const initDistributionChart = async () => {
 
   const option = {
     tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
-    xAxis: { type: 'category', data: data.ranges.map(r => r.name) },
+    xAxis: { type: 'category', data: scoreRanges.value.map(r => r.name) },
     yAxis: { type: 'value', name: '人数' },
     series: [{
       type: distributionType.value,
-      data: data.ranges.map(r => r.count),
+      data: scoreRanges.value.map(r => r.count),
       itemStyle: {
         borderRadius: distributionType.value === 'bar' ? [8, 8, 0, 0] : 0,
-        color: (params) => data.ranges[params.dataIndex].color
+        color: (params) => scoreRanges.value[params.dataIndex]?.color || '#409eff'
       },
       label: { show: true, position: distributionType.value === 'bar' ? 'top' : 'right', formatter: '{c}人' },
       smooth: distributionType.value === 'line'
@@ -274,10 +253,11 @@ const initDistributionChart = async () => {
   distributionChart.setOption(option)
 }
 
-
 // 趋势图
 const initTrendChart = async () => {
   const data = await fetchTrendData()
+  if (!data) return
+  
   const chartDom = document.getElementById('trendChart')
   if (!chartDom) return
   if (trendChart) trendChart.dispose()
@@ -302,7 +282,6 @@ const initTrendChart = async () => {
   })
 }
 
-
 // 完整趋势图
 const initFullTrendChart = async (studentId) => {
   const data = await fetchStudentTrend(studentId)
@@ -313,10 +292,10 @@ const initFullTrendChart = async (studentId) => {
   studentFullTrendChart = echarts.init(chartDom)
   studentFullTrendChart.setOption({
     tooltip: { trigger: 'axis' },
-    xAxis: { type: 'category', data: data.exams },
+    xAxis: { type: 'category', data: data?.exams || [] },
     yAxis: { type: 'value', name: '分数' },
     series: [{
-      type: 'line', data: data.scores, smooth: true,
+      type: 'line', data: data?.scores || [], smooth: true,
       lineStyle: { color: '#409eff', width: 3 },
       areaStyle: { opacity: 0.2 },
       symbol: 'circle', symbolSize: 8,
@@ -363,7 +342,7 @@ const sortStudents = () => {
   }
 
   filteredStudentScores.value = sorted
-  pagination.total = sorted.length
+  pagination.total = filteredStudentScores.value.length
 }
 
 const handleSizeChange = (size) => {
@@ -385,19 +364,15 @@ const updateTrendChart = () => {
 const refreshData = async () => {
   loading.value = true
   try {
-    const [stats, progressData] = await Promise.all([
-      fetchGradeStats(),
-      fetchProgressAndDecline()
-    ])
-    Object.assign(gradeStats, stats)
-    progressList.value = progressData.progress
-    declineList.value = progressData.decline
-
     await Promise.all([
+      fetchGradeStats(),
+      fetchProgressAndDecline(),
       fetchStudentScores(),
       initDistributionChart(),
-      initTrendChart(),
+      initTrendChart()
     ])
+  } catch (error) {
+    console.error('刷新数据失败:', error)
   } finally {
     loading.value = false
   }
@@ -412,30 +387,26 @@ const viewStudentDetail = async (student) => {
 }
 
 const exportGradeReport = () => {
-  exportToPDF(dashboardRef.value, "班级成绩可视化报告")
+  exportToPDF(dashboardRef.value, `${searchModel.value.classId}_班级成绩报告`)
 }
 
 const exportGradeSheet = () => {
-  //设置导出excel文件
-  // window.open(`/api/teacher/class/${searchModel.value.classId}/grade-sheet?examId=${searchModel.value.examId}`, '_blank')
+  window.open(`/api/teacher/class/${searchModel.value.classId}/grade-sheet?examId=${searchModel.value.examId}`, '_blank')
 }
 
 const exportProgressList = () => {
-  //设置导出excel文件
-  // window.open(`/api/teacher/class/${searchModel.value.classId}/progress-list`, '_blank')
+  window.open(`/api/teacher/class/${searchModel.value.classId}/progress-list?examId=${searchModel.value.examId}`, '_blank')
 }
 
 const exportDeclineList = () => {
-  //设置导出excel文件
-  // window.open(`/api/teacher/class/${searchModel.value.classId}/decline-list`, '_blank')
+  window.open(`/api/teacher/class/${searchModel.value.classId}/decline-list?examId=${searchModel.value.examId}`, '_blank')
 }
 
 // ==================== 生命周期 ====================
 onMounted(async () => {
-  const classes = await fetchClassList()
-  classList.value = classes
-  if (classes.length > 0) {
-    searchModel.value.classId = classes[0].id
+  await fetchClassList()
+  if (classList.value.length > 0) {
+    searchModel.value.classId = classList.value[0].id
     const exams = await fetchExamList(searchModel.value.classId)
     examList.value = exams
     if (exams.length > 0) {

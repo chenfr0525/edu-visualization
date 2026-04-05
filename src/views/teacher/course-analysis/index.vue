@@ -3,8 +3,10 @@ import { ref, reactive, computed, onMounted, onUnmounted } from 'vue'
 import * as echarts from 'echarts'
 import { exportToPDF } from '@/utils/export'
 import StatCard from './component/stat-card.vue'
+import { tDashboardApi, tCourseApi } from '@/api/index.js'
+import { useAuthStore } from '@/stores/index.js'
 
-// ==================== 响应式数据 ====================
+const authStore = useAuthStore()
 const loading = ref(false)
 const containerRef = ref(null)
 
@@ -26,7 +28,6 @@ const courseList = ref([])
 const classList = ref([])
 const currentCourse = ref(null)
 
-// 统计数据
 const overviewStats = reactive({
   avgScore: 0,
   passRate: 0,
@@ -35,20 +36,12 @@ const overviewStats = reactive({
   scoreTrend: 0
 })
 
-// 知识点数据
 const knowledgePoints = ref([])
 const weakKnowledgePoints = ref([])
 
-// 成绩趋势数据
 const trendData = ref([])
-
-// 班级对比数据
 const classCompareData = ref([])
-
-
-// 散点图数据
 const scatterData = ref([])
-
 
 // 图表实例
 let knowledgeChart = null
@@ -80,13 +73,12 @@ const dateShortcuts = [
     text: '本学期',
     value: () => {
       const end = new Date()
-      const start = new Date(new Date().getFullYear(), 2, 1) // 3月1日
+      const start = new Date(new Date().getFullYear(), 2, 1)
       return [start, end]
     }
   }
 ]
 
-// ==================== 辅助函数 ====================
 const getRankClass = (index) => {
   if (index === 0) return 'rank-first'
   if (index === 1) return 'rank-second'
@@ -107,111 +99,99 @@ const getMasteryClass = (level) => {
   return 'mastery-low'
 }
 
-
-// ==================== API 调用 ====================
-// 获取课程列表
 const fetchCourseList = async () => {
-  // GET /api/teacher/courses
-  await new Promise(resolve => setTimeout(resolve, 300))
-  return [
-    { id: 1, name: '数学', description: '高中数学课程，涵盖函数、几何、概率等', icon: 'calculator' },
-    { id: 2, name: '语文', description: '高中语文课程，涵盖文言文、现代文、写作等', icon: 'book' },
-    { id: 3, name: '英语', description: '高中英语课程，涵盖语法、阅读、写作等', icon: 'language' },
-    { id: 4, name: '物理', description: '高中物理课程，涵盖力学、电磁学等', icon: 'flask' },
-    { id: 5, name: '化学', description: '高中化学课程，涵盖无机、有机化学等', icon: 'atom' }
-  ]
+  try {
+    const res = await tCourseApi.getCourseList(authStore.userId)
+    if (res && res.data) {
+      courseList.value = res.data
+    }
+  } catch (error) {
+    console.error('获取课程列表失败:', error)
+  }
 }
 
-// 获取班级列表
 const fetchClassList = async () => {
-  // GET /api/teacher/classes
-  return [
-    { id: 1, name: '高三(1)班', grade: '高三', studentCount: 45 },
-    { id: 2, name: '高三(2)班', grade: '高三', studentCount: 42 },
-    { id: 3, name: '高三(3)班', grade: '高三', studentCount: 38 },
-    { id: 4, name: '高三(4)班', grade: '高三', studentCount: 44 }
-  ]
+  try {
+    const res = await tDashboardApi.getClassList(authStore.userId)
+    if (res && res.data) {
+      classList.value = res.data
+    }
+  } catch (error) {
+    console.error('获取班级列表失败:', error)
+  }
 }
 
-// 获取课程概览统计
 const fetchCourseOverview = async () => {
-  // GET /api/teacher/course/{courseId}/overview
-  await new Promise(resolve => setTimeout(resolve, 300))
-  return {
-    avgScore: 78.5,
-    passRate: 85,
-    excellentRate: 32,
-    homeworkCompletion: 91,
-    scoreTrend: 5.2
+  if (!searchModel.value.courseId) return null
+  try {
+    const res = await tCourseApi.getCourseOverview(searchModel.value.courseId)
+    if (res && res.data) {
+      return res.data
+    }
+  } catch (error) {
+    console.error('获取课程概览失败:', error)
   }
+  return null
 }
 
-// 获取知识点掌握数据
 const fetchKnowledgePoints = async () => {
-  // GET /api/teacher/course/{courseId}/knowledge-mastery
-  await new Promise(resolve => setTimeout(resolve, 400))
-  return {
-    knowledgePoints: [
-      { name: '函数与导数', mastery: 82, errorRate: 18, questionCount: 12, avgScoreRate: 82 },
-      { name: '三角函数', mastery: 68, errorRate: 32, questionCount: 10, avgScoreRate: 68 },
-      { name: '数列', mastery: 75, errorRate: 25, questionCount: 8, avgScoreRate: 75 },
-      { name: '立体几何', mastery: 58, errorRate: 42, questionCount: 15, avgScoreRate: 58 },
-      { name: '解析几何', mastery: 62, errorRate: 38, questionCount: 12, avgScoreRate: 62 },
-      { name: '概率统计', mastery: 85, errorRate: 15, questionCount: 8, avgScoreRate: 85 },
-      { name: '复数', mastery: 90, errorRate: 10, questionCount: 5, avgScoreRate: 90 }
-    ],
-    weakPoints: [
-      { name: '立体几何', mastery: 58, errorRate: 42, rank: 1 },
-      { name: '解析几何', mastery: 62, errorRate: 38, rank: 2 },
-      { name: '三角函数', mastery: 68, errorRate: 32, rank: 3 },
-      { name: '数列', mastery: 75, errorRate: 25, rank: 4 },
-      { name: '函数与导数', mastery: 82, errorRate: 18, rank: 5 }
-    ]
+  if (!searchModel.value.courseId) return null
+  try {
+    const res = await tCourseApi.getKnowledgeMastery(searchModel.value.courseId)
+    if (res && res.data) {
+      return res.data
+    }
+  } catch (error) {
+    console.error('获取知识点数据失败:', error)
   }
+  return null
 }
 
-// 获取成绩趋势数据
 const fetchTrendData = async () => {
-  // GET /api/teacher/course/{courseId}/trend
-  await new Promise(resolve => setTimeout(resolve, 300))
-  return {
-    exams: ['月考1', '月考2', '期中', '月考3', '期末'],
-    avgScore: [72, 75, 78, 76, 82],
-    highestScore: [95, 96, 98, 97, 99],
-    passRate: [68, 72, 78, 75, 85]
+  if (!searchModel.value.courseId) return null
+  try {
+    const res = await tCourseApi.getCourseTrend(searchModel.value.courseId)
+    if (res && res.data) {
+      return res.data
+    }
+  } catch (error) {
+    console.error('获取趋势数据失败:', error)
   }
+  return null
 }
 
-// 获取班级对比数据
 const fetchClassCompare = async () => {
-  // GET /api/teacher/course/{courseId}/class-compare
-  await new Promise(resolve => setTimeout(resolve, 300))
-  return [
-    { className: '高三(1)班', avgScore: 78.5, passRate: 85, excellentRate: 32, rank: 1 },
-    { className: '高三(2)班', avgScore: 72.3, passRate: 76, excellentRate: 24, rank: 3 },
-    { className: '高三(3)班', avgScore: 75.8, passRate: 81, excellentRate: 28, rank: 2 },
-    { className: '高三(4)班', avgScore: 70.2, passRate: 72, excellentRate: 20, rank: 4 }
-  ]
-}
-
-// 获取散点图数据
-const fetchScatterData = async () => {
-  // GET /api/teacher/course/{courseId}/scatter
-  await new Promise(resolve => setTimeout(resolve, 300))
-  return {
-    students: ['张三', '李四', '王五', '赵六', '钱七', '孙八', '周九', '吴十'],
-    scores: [92, 78, 85, 62, 88, 45, 95, 72],
-    homeworkRate: [95, 85, 90, 70, 92, 60, 98, 80],
-    improvement: [5, -2, 8, -5, 3, -10, 12, 0]
+  if (!searchModel.value.courseId) return null
+  try {
+    const res = await tCourseApi.getClassCompare(searchModel.value.courseId)
+    if (res && res.data) {
+      return res.data
+    }
+  } catch (error) {
+    console.error('获取班级对比失败:', error)
   }
+  return null
 }
 
-// ==================== 图表初始化 ====================
-// 知识点掌握图表
+const fetchScatterData = async () => {
+  if (!searchModel.value.courseId) return null
+  try {
+    const res = await tCourseApi.getScatterData(searchModel.value.courseId)
+    if (res && res.data) {
+      return res.data
+    }
+  } catch (error) {
+    console.error('获取散点图数据失败:', error)
+  }
+  return null
+}
+
 const initKnowledgeChart = async () => {
   const data = await fetchKnowledgePoints()
-  knowledgePoints.value = data.knowledgePoints
-  weakKnowledgePoints.value = data.weakPoints
+  if (!data) return
+
+  knowledgePoints.value = data.knowledgePoints || []
+  weakKnowledgePoints.value = data.weakPoints || []
 
   const chartDom = document.getElementById('knowledgeRadarChart')
   if (!chartDom) return
@@ -263,9 +243,10 @@ const initKnowledgeChart = async () => {
   }
 }
 
-// 成绩趋势图表
 const initTrendChart = async () => {
   const data = await fetchTrendData()
+  if (!data) return
+
   trendData.value = data
 
   const chartDom = document.getElementById('trendChart')
@@ -297,9 +278,10 @@ const initTrendChart = async () => {
   })
 }
 
-// 班级对比图表
 const initCompareChart = async () => {
   const data = await fetchClassCompare()
+  if (!data) return
+
   classCompareData.value = data
 
   const chartDom = document.getElementById('classCompareChart')
@@ -323,16 +305,17 @@ const initCompareChart = async () => {
       data: metric.data,
       itemStyle: {
         borderRadius: [8, 8, 0, 0],
-        color: metric.color,
-        label: { show: true, position: 'top', formatter: '{c}' }
-      }
+        color: metric.color
+      },
+      label: { show: true, position: 'top', formatter: '{c}' }
     }]
   })
 }
 
-// 散点图
 const initScatterPlot = async () => {
   const data = await fetchScatterData()
+  if (!data) return
+
   scatterData.value = data
 
   const chartDom = document.getElementById('scatterPlotChart')
@@ -374,7 +357,6 @@ const initScatterPlot = async () => {
   })
 }
 
-// ==================== 事件处理 ====================
 const handleFilterChange = () => {
   refreshData()
 }
@@ -383,7 +365,9 @@ const refreshData = async () => {
   loading.value = true
   try {
     const overview = await fetchCourseOverview()
-    Object.assign(overviewStats, overview)
+    if (overview) {
+      Object.assign(overviewStats, overview)
+    }
 
     await Promise.all([
       initKnowledgeChart(),
@@ -391,6 +375,8 @@ const refreshData = async () => {
       initCompareChart(),
       initScatterPlot()
     ])
+  } catch (error) {
+    console.error('刷新数据失败:', error)
   } finally {
     loading.value = false
   }
@@ -413,29 +399,25 @@ const updateScatterPlot = () => {
 }
 
 const exportReport = () => {
-  exportToPDF(containerRef.value, `${searchModel.value.classId} 教学看板`)
+  exportToPDF(containerRef.value, `${currentCourse.value?.name || '课程'}_分析报告`)
 }
 
-
-// ==================== 生命周期 ====================
 onMounted(async () => {
-  const [courses, classes] = await Promise.all([
+  await Promise.all([
     fetchCourseList(),
     fetchClassList()
   ])
-  courseList.value = courses
-  classList.value = classes
 
-  if (courses.length > 0) {
-    searchModel.value.courseId = courses[0].id
-    currentCourse.value = courses[0]
+  if (courseList.value.length > 0) {
+    searchModel.value.courseId = courseList.value[0].id
+    currentCourse.value = courseList.value[0]
     await refreshData()
   }
 })
 
 onUnmounted(() => {
   [knowledgeChart, trendChart, classCompareChart, scatterChart].forEach(chart => {
-    chart?.dispose()
+    if (chart) chart.dispose()
   })
 })
 </script>

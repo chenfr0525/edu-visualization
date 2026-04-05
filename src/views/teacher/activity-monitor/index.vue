@@ -5,8 +5,10 @@ import * as echarts from 'echarts'
 import { exportToPDF } from '@/utils/export'
 import OverviewCard from './component/overview-card.vue'
 import StatItem from './component/stat-item.vue'
+import { tActivityMonitorApi, tDashboardApi } from '@/api/index.js'
+import { useAuthStore } from '@/stores/index.js'
 
-// ==================== 响应式数据 ====================
+const authStore = useAuthStore()
 const loading = ref(false)
 const dashboardRef = ref(null)
 
@@ -95,7 +97,6 @@ const dateShortcuts = [
   }
 ]
 
-// ==================== 辅助函数 ====================
 const getRankClass = (index) => {
   if (index === 0) return 'rank-gold'
   if (index === 1) return 'rank-silver'
@@ -113,137 +114,158 @@ const getActivityLevelText = (level) => {
   return map[level] || level
 }
 
-// ==================== API 调用 ====================
-// 获取班级列表
 const fetchClassList = async () => {
-  await new Promise(resolve => setTimeout(resolve, 300))
-  return [
-    { id: 1, name: '高三(1)班', grade: '高三', studentCount: 45 },
-    { id: 2, name: '高三(2)班', grade: '高三', studentCount: 42 },
-    { id: 3, name: '高三(3)班', grade: '高三', studentCount: 38 }
-  ]
+  try {
+    const res = await tDashboardApi.getClassList(authStore.userId)
+    if (res && res.data) {
+      classList.value = res.data
+    }
+  } catch (error) {
+    console.error('获取班级列表失败:', error)
+  }
 }
 
 // 获取活跃度概览
 const fetchOverviewStats = async () => {
-  await new Promise(resolve => setTimeout(resolve, 300))
-  return {
-    avgDailyDuration: 48.5,
-    avgDailyVisits: 3.2,
-    avgDailyInteractions: 1.8,
-    activeRate: 78,
-    peakHour: '20:00',
-    durationTrend: 5.2
+  if (!searchModel.value.classId) return
+  try {
+    const res = await tActivityMonitorApi.getActivityOverview(searchModel.value.classId)
+    if (res && res.data) {
+      Object.assign(overviewStats, res.data)
+    }
+  } catch (error) {
+    console.error('获取概览统计失败:', error)
   }
 }
 
 // 获取趋势数据
 const fetchTrendData = async () => {
-  await new Promise(resolve => setTimeout(resolve, 300))
-  const days = ['03/16', '03/17', '03/18', '03/19', '03/20', '03/21', '03/22']
-  return {
-    dates: days,
-    duration: [45, 52, 48, 55, 62, 58, 65],
-    visits: [3.2, 3.5, 3.1, 3.8, 4.2, 3.9, 4.5],
-    interactions: [1.5, 1.8, 1.6, 2.0, 2.3, 2.1, 2.5]
+  if (!searchModel.value.classId) return
+  try {
+    const res = await tActivityMonitorApi.getActivityTrend(searchModel.value.classId)
+    if (res && res.data) {
+      return res.data
+    }
+  } catch (error) {
+    console.error('获取趋势数据失败:', error)
   }
+  return null
 }
 
 // 获取时段分布数据
 const fetchHourlyData = async () => {
-  await new Promise(resolve => setTimeout(resolve, 300))
-  const hours = Array.from({ length: 24 }, (_, i) => `${i}:00`)
-  const data = [
-    5, 3, 2, 1, 1, 2, 5, 15, 25, 35, 45, 50,
-    48, 52, 55, 58, 62, 68, 75, 82, 78, 65, 48, 32
-  ]
-  return { hours, data }
+  if (!searchModel.value.classId) return
+  try {
+    const res = await tActivityMonitorApi.getActivityHourly(searchModel.value.classId)
+    if (res && res.data) {
+      return res.data
+    }
+  } catch (error) {
+    console.error('获取时段数据失败:', error)
+  }
+  return null
 }
 
 // 获取热力图数据
 const fetchHeatmapData = async () => {
-  await new Promise(resolve => setTimeout(resolve, 400))
-  const students = ['张三', '李四', '王五', '赵六', '钱七', '孙八', '周九', '吴十']
-  const dates = ['03/16', '03/17', '03/18', '03/19', '03/20', '03/21', '03/22']
-  const data = []
-  for (let i = 0; i < students.length; i++) {
-    const row = []
-    for (let j = 0; j < dates.length; j++) {
-      let value
-      if (heatmapMetric.value === 'duration') {
-        value = Math.floor(Math.random() * 100) + 10
-      } else if (heatmapMetric.value === 'visits') {
-        value = Math.floor(Math.random() * 8) + 1
-      } else {
-        value = Math.floor(Math.random() * 5)
-      }
-      row.push(value)
+  if (!searchModel.value.classId) return
+  try {
+    const res = await tActivityMonitorApi.getActivityHeatmap(searchModel.value.classId, heatmapMetric.value)
+    if (res && res.data) {
+      return res.data
     }
-    data.push(row)
+  } catch (error) {
+    console.error('获取热力图数据失败:', error)
   }
-  return { students, dates, data }
+  return null
 }
 
 // 获取活跃度排行榜
 const fetchActiveRanking = async () => {
-  await new Promise(resolve => setTimeout(resolve, 300))
-  return [
-    { studentName: '张小明', studentNo: '2024001', totalDuration: 485, avgDailyDuration: 69, visitCount: 32, interactionCount: 18, activityLevel: 'high' },
-    { studentName: '李华', studentNo: '2024002', totalDuration: 452, avgDailyDuration: 64, visitCount: 28, interactionCount: 15, activityLevel: 'high' },
-    { studentName: '王芳', studentNo: '2024003', totalDuration: 428, avgDailyDuration: 61, visitCount: 25, interactionCount: 12, activityLevel: 'high' },
-    { studentName: '刘洋', studentNo: '2024006', totalDuration: 385, avgDailyDuration: 55, visitCount: 22, interactionCount: 10, activityLevel: 'medium' },
-    { studentName: '陈晨', studentNo: '2024005', totalDuration: 362, avgDailyDuration: 52, visitCount: 20, interactionCount: 8, activityLevel: 'medium' }
-  ]
+  if (!searchModel.value.classId) return
+  try {
+    const res = await tActivityMonitorApi.getActivityRanking(searchModel.value.classId)
+    if (res && res.data) {
+      activeRanking.value = res.data
+    }
+  } catch (error) {
+    console.error('获取排行榜失败:', error)
+  }
 }
 
 // 获取不活跃学生列表
 const fetchInactiveStudents = async () => {
-  await new Promise(resolve => setTimeout(resolve, 300))
-  return [
-    { id: 4, studentName: '赵雷', studentNo: '2024004', totalDuration: 85, lastActiveTime: '2026-03-15', inactiveDays: 7, className: '高三(1)班' },
-    { id: 7, studentName: '周婷', studentNo: '2024007', totalDuration: 112, lastActiveTime: '2026-03-16', inactiveDays: 6, className: '高三(1)班' },
-    { id: 9, studentName: '吴迪', studentNo: '2024009', totalDuration: 45, lastActiveTime: '2026-03-10', inactiveDays: 12, className: '高三(1)班' }
-  ]
+  if (!searchModel.value.classId) return
+  try {
+    const res = await tActivityMonitorApi.getInactiveStudents(searchModel.value.classId)
+    if (res && res.data) {
+      inactiveStudents.value = res.data
+    }
+  } catch (error) {
+    console.error('获取不活跃学生失败:', error)
+  }
 }
 
 // 获取行为分析数据
 const fetchBehaviorData = async () => {
-  await new Promise(resolve => setTimeout(resolve, 300))
-  const days = ['03/16', '03/17', '03/18', '03/19', '03/20', '03/21', '03/22']
-  return {
-    dates: days,
-    video: [125, 142, 138, 155, 168, 162, 175],
-    homework: [38, 42, 40, 45, 48, 46, 52],
-    discussion: [15, 18, 16, 22, 25, 23, 28]
+  if (!searchModel.value.classId) return
+  try {
+    const res = await tActivityMonitorApi.getBehaviorAnalysis(searchModel.value.classId)
+    if (res && res.data) {
+      return res.data
+    }
+  } catch (error) {
+    console.error('获取行为分析失败:', error)
   }
+  return null
 }
 
 // 获取学生每日活跃数据
 const fetchStudentDailyActivity = async (studentId) => {
-  await new Promise(resolve => setTimeout(resolve, 300))
-  const days = ['03/16', '03/17', '03/18', '03/19', '03/20', '03/21', '03/22']
-  return {
-    dates: days,
-    duration: [45, 52, 48, 55, 62, 58, 65],
-    visits: [3, 4, 3, 4, 5, 4, 5],
-    interactions: [2, 3, 2, 3, 4, 3, 4]
+  try {
+    const res = await tActivityMonitorApi.getStudentDailyActivity(studentId)
+    if (res && res.data) {
+      return res.data
+    }
+  } catch (error) {
+    console.error('获取学生每日活跃失败:', error)
   }
+  return null
 }
 
 // 获取学生学习行为分布
 const fetchStudentBehavior = async (studentId) => {
-  await new Promise(resolve => setTimeout(resolve, 300))
-  return {
-    categories: ['视频观看', '作业提交', '讨论互动', '资料下载', '测验练习'],
-    values: [65, 18, 12, 8, 22]
+  try {
+    const res = await tActivityMonitorApi.getStudentBehavior(studentId)
+    if (res && res.data) {
+      return res.data
+    }
+  } catch (error) {
+    console.error('获取学生行为分布失败:', error)
   }
+  return null
 }
 
+// 发送提醒
+const sendReminderApi = async (studentIds, content) => {
+  try {
+    const res = await tActivityMonitorApi.sendReminder({ studentIds, content })
+    if (res && res.code === 200) {
+      ElMessage.success(res.message || '提醒发送成功')
+      return true
+    }
+  } catch (error) {
+    console.error('发送提醒失败:', error)
+    ElMessage.error('发送失败')
+  }
+  return false
+}
 
-// ==================== 图表初始化 ====================
 // 趋势图
 const initTrendChart = async () => {
   const data = await fetchTrendData()
+  if (!data) return
+  
   trendData.value = data
 
   const chartDom = document.getElementById('trendChart')
@@ -279,6 +301,8 @@ const initTrendChart = async () => {
 // 时段分布图
 const initHourlyChart = async () => {
   const data = await fetchHourlyData()
+  if (!data) return
+  
   hourlyData.value = data
 
   const chartDom = document.getElementById('hourlyChart')
@@ -316,6 +340,8 @@ const initHourlyChart = async () => {
 // 热力图
 const initHeatmap = async () => {
   const data = await fetchHeatmapData()
+  if (!data) return
+  
   heatmapData.value = data
 
   const chartDom = document.getElementById('heatmapChart')
@@ -367,6 +393,8 @@ const initHeatmap = async () => {
 // 行为分析图
 const initBehaviorChart = async () => {
   const data = await fetchBehaviorData()
+  if (!data) return
+  
   behaviorData.value = data
 
   const chartDom = document.getElementById('behaviorChart')
@@ -401,6 +429,8 @@ const initBehaviorChart = async () => {
 // 学生每日活跃图
 const initStudentDailyChart = async (studentId) => {
   const data = await fetchStudentDailyActivity(studentId)
+  if (!data) return
+  
   const chartDom = document.getElementById('studentDailyChart')
   if (!chartDom) return
   if (studentDailyChart) studentDailyChart.dispose()
@@ -423,6 +453,8 @@ const initStudentDailyChart = async (studentId) => {
 // 学生学习行为分布图
 const initStudentBehaviorChart = async (studentId) => {
   const data = await fetchStudentBehavior(studentId)
+  if (!data) return
+  
   const chartDom = document.getElementById('studentBehaviorChart')
   if (!chartDom) return
   if (studentBehaviorChart) studentBehaviorChart.dispose()
@@ -439,7 +471,6 @@ const initStudentBehaviorChart = async (studentId) => {
   })
 }
 
-// ==================== 事件处理 ====================
 const handleFilterChange = async () => {
   await refreshData()
 }
@@ -447,21 +478,17 @@ const handleFilterChange = async () => {
 const refreshData = async () => {
   loading.value = true
   try {
-    const [stats, ranking, inactive] = await Promise.all([
+    await Promise.all([
       fetchOverviewStats(),
       fetchActiveRanking(),
-      fetchInactiveStudents()
-    ])
-    Object.assign(overviewStats, stats)
-    activeRanking.value = ranking
-    inactiveStudents.value = inactive
-
-    await Promise.all([
+      fetchInactiveStudents(),
       initTrendChart(),
       initHourlyChart(),
       initHeatmap(),
       initBehaviorChart()
     ])
+  } catch (error) {
+    console.error('刷新数据失败:', error)
   } finally {
     loading.value = false
   }
@@ -481,18 +508,8 @@ const viewStudentActivity = async (student) => {
   }, 100)
 }
 
-const sendReminder = () => {
-  if (inactiveStudents.value.length === 0) {
-    ElMessage.warning('暂无需要提醒的学生')
-    return
-  }
-  reminderStudents.value = inactiveStudents.value
-  reminderForm.content = '同学你好，检测到近期学习活跃度较低，请合理安排学习时间，坚持每天学习。如有困难请及时与老师沟通。'
-  reminderDialogVisible.value = true
-}
-
 const exportActivityReport = () => {
-  exportToPDF(dashboardRef.value, "学生学习行为可视化报告")
+  exportToPDF(dashboardRef.value, `${searchModel.value.classId}_学生学习行为报告`)
 }
 
 const exportHeatmap = () => {
@@ -503,12 +520,10 @@ const exportActiveRanking = () => {
   window.open(`/api/teacher/activity/ranking/export?classId=${searchModel.value.classId}`, '_blank')
 }
 
-// ==================== 生命周期 ====================
 onMounted(async () => {
-  const classes = await fetchClassList()
-  classList.value = classes
-  if (classes.length > 0) {
-    searchModel.value.classId = classes[0].id
+  await fetchClassList()
+  if (classList.value.length > 0) {
+    searchModel.value.classId = classList.value[0].id
     const end = new Date()
     const start = new Date()
     start.setTime(start.getTime() - 3600 * 1000 * 24 * 7)
@@ -519,7 +534,7 @@ onMounted(async () => {
 
 onUnmounted(() => {
   [trendChart, hourlyChart, heatmapChart, behaviorChart, studentDailyChart, studentBehaviorChart].forEach(chart => {
-    chart?.dispose()
+    if (chart) chart.dispose()
   })
 })
 </script>
