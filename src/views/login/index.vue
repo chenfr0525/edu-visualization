@@ -1,7 +1,7 @@
 <script setup>
-import { ref } from 'vue'
+import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { useAuthStore } from '@/stores/auth'
+import { useAuthStore } from '@/stores/index.js'
 import { ElMessage } from 'element-plus'
 
 const router = useRouter()
@@ -32,11 +32,11 @@ const handleLogin = async () => {
 
   loading.value = true
   try {
-    await authStore.login(loginForm.value.username, loginForm.value.password)
+    await authStore.login(loginForm.value)
     ElMessage.success('登录成功')
     router.push('/')
   } catch (error) {
-    ElMessage.error(error.message || '登录失败')
+    console.log( '登录失败',error)
   } finally {
     loading.value = false
   }
@@ -66,7 +66,7 @@ const handleRegister = async () => {
     ElMessage.success('注册成功')
     activeName.value = 'login' // 切换到登录页
   } catch (error) {
-    ElMessage.error(error.message || '注册失败')
+    console.log( '注册失败',error)
   } finally {
     loading.value = false
   }

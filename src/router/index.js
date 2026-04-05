@@ -1,5 +1,5 @@
 import { createRouter, createWebHistory } from 'vue-router'
-import { useAuthStore } from '@/stores/auth'
+import { useAuthStore } from '@/stores/index.js'
 
 const baseRoutes = [
   {
@@ -18,10 +18,9 @@ const baseRoutes = [
         name: 'Dashboard',
         component: () => {
           const authStore = useAuthStore()
-          return import('@/views/teacher/dashboard/index.vue')
-          // return authStore.userRole === 'teacher'
-          //   ? import('@/views/teacher/dashboard/index.vue')
-          //   : import('@/views/student/dashboard/index.vue')
+          return authStore.userRole === 'teacher'
+            ? import('@/views/teacher/dashboard/index.vue')
+            : import('@/views/student/dashboard/index.vue')
         },
         meta: { title: '控制台' },
       },

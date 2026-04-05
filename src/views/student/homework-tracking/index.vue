@@ -1,150 +1,230 @@
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { exportToImage, exportToPDF } from '@/utils/export'
 import StatBox from '../dashboard/component/stat-box.vue'
 import { Picture } from '@element-plus/icons-vue'
+import { homeworkApi } from '@/api/index.js'
+import { useAuthStore } from '@/stores/index.js'
+import { ElMessage, ElMessageBox } from 'element-plus'
 
 const containerRef = ref(null)
+const authStore = useAuthStore()
 const loading = ref(false)
+// 搜索表单
 const searchModel = ref({
-  course: '全部课程',
-  status: '全部作业',
+  course: 'all',
+  status: 'all',
   keyword: '',
 })
+// 选项数据
+const courseOptions = ref([])
+const statusOptions = ref([])
+// 统计数据
+const statsData = ref({
+  pending: 0,
+  graded: 0,
+  avgScore: 0,
+  onTimeRate: 0
+})
+
+// 作业列表
+const homeworkList = ref([])
 const pageInfo = ref({
   page: 1,
   pageSize: 10,
   total: 0,
 })
-
-const statusOptions = [
+// 统计卡片配置
+const statBoxes = computed(() => [
   {
-    label: '全部作业',
-    value: '全部作业',
-  },
-  {
-    label: '未完成',
-    value: '未完成',
-  },
-  {
-    label: '已完成',
-    value: '已完成',
-  },
-]
-const courseOptions = [
-  {
-    label: '全部课程',
-    value: '全部课程',
-  },
-  {
-    label: '数据结构',
-    value: '数据结构',
-  },
-  {
-    label: '算法',
-    value: '算法',
-  },
-  {
-    label: '软件工程',
-    value: '软件工程',
-  },
-  {
-    label: '计算机网络',
-    value: '计算机网络',
-  },
-  {
-    label: '操作系统',
-    value: '操作系统',
-  },
-  {
-    label: '数据库',
-    value: '数据库',
-  },
-  {
-    label: '计算机系统结构',
-    value: '计算机系统结构',
-  },
-  {
-    label: '计算机组成原理',
-    value: '计算机组成原理',
-  },
-]
-
-const statBoxes = [
-  {
-    statNum: 10,
+    statNum: statsData.value.pending,
     title: '待提交',
   },
   {
-    statNum: 5,
+    statNum: statsData.value.graded,
     title: '已批改',
   },
   {
-    statNum: 2,
+    statNum: statsData.value.avgScore,
     title: '平均分',
   },
   {
-    rate: 80,
+    rate: statsData.value.onTimeRate,
     title: '按时率',
   },
-]
+])
 
-const workList = [
-  {
-    id: 1,
-    assignmentName: "三角函数练习",
-    course: "高等数学",
-    deadline: "2026-03-20",
-    status: "进行中",
-    score: 89,
-    actions: ["批改", "详情"]
-  },
-  {
-    id: 2,
-    assignmentName: "英语作文",
-    course: "大学英语",
-    deadline: "2026-03-18",
-    status: "已截止",
-    score: 82.5,
-    actions: ["查看", "分析"]
-  },
-  {
-    id: 3,
-    assignmentName: "Python编程作业",
-    course: "程序设计",
-    deadline: "2026-03-25",
-    status: "未开始",
-    score: null,
-    actions: ["编辑", "发布"]
-  },
-  {
-    id: 4,
-    assignmentName: "物理实验报告",
-    course: "物理实验",
-    deadline: "2026-03-15",
-    status: "已批改",
-    score: 88.2,
-    actions: ["查看解析"]
-  },
-  {
-    id: 5,
-    assignmentName: "Java项目",
-    course: "软件工程",
-    deadline: "2026-03-10",
-    status: "已截止",
-    score: null,
-    actions: ["查看", "分析"]
-  },
-  {
-    id: 6,
-    assignmentName: "数据结构作业",
-    course: "数据结构",
-    deadline: "2026-03-05",
-    status: "未开始",
-    score: null,
-    actions: ["编辑", "发布"]
+// 获取状态样式
+const getStatusType = (status) => {
+  const typeMap = {
+    'pending': 'warning',
+    'submitted': 'info',
+    'graded': 'success',
+    'overdue': 'danger'
   }
-]
+  return typeMap[status] || 'info'
+}
+
+// 获取状态文本
+const getStatusText = (status) => {
+  const textMap = {
+    'pending': '待提交',
+    'submitted': '已提交',
+    'graded': '已批改',
+    'overdue': '已逾期'
+  }
+  return textMap[status] || status
+}
+
+// 加载课程选项
+const loadCourseOptions = async () => {
+  try {
+    const res = await homeworkApi.getCourseOptions(authStore.userId)
+    if (res && res.data) {
+      courseOptions.value = res.data
+    }
+  } catch (error) {
+    console.error('加载课程选项失败:', error)
+  }
+}
+
+// 加载状态选项
+const loadStatusOptions = async () => {
+  try {
+    const res = await homeworkApi.getStatusOptions()
+    if (res && res.data) {
+      statusOptions.value = res.data
+    }
+  } catch (error) {
+    console.error('加载状态选项失败:', error)
+  }
+}
+// 加载统计数据
+const loadStats = async () => {
+  try {
+    const res = await homeworkApi.getStats(authStore.userId)
+    if (res && res.data) {
+      statsData.value = res.data
+    }
+  } catch (error) {
+    console.error('加载统计数据失败:', error)
+  }
+}
+// 加载作业列表
+const loadHomeworkList = async () => {
+  loading.value = true
+  try {
+    const res = await homeworkApi.getHomeworkList(authStore.userId, {
+      course: searchModel.value.course,
+      status: searchModel.value.status,
+      keyword: searchModel.value.keyword,
+      page: pageInfo.value.page,
+      pageSize: pageInfo.value.pageSize
+    })
+    if (res && res.data) {
+      homeworkList.value = res.data.list || []
+      pageInfo.value.total = res.data.total
+    }
+  } catch (error) {
+    console.error('加载作业列表失败:', error)
+    ElMessage.error('加载作业列表失败')
+  } finally {
+    loading.value = false
+  }
+}
+
+// 提交作业
+const handleSubmitHomework = async (row) => {
+  try {
+    await ElMessageBox.confirm(`确定要提交作业"${row.assignmentName}"吗？`, '提示', {
+      confirmButtonText: '确定',
+      cancelButtonText: '取消',
+      type: 'info'
+    })
+
+    // 模拟文件上传
+    const res = await homeworkApi.submitHomework({
+      homeworkId: row.id,
+      studentId: authStore.userId,
+      content: '作业内容...',
+      files: []
+    })
+
+    if (res && res.code === 200) {
+      ElMessage.success('作业提交成功')
+      loadHomeworkList()
+      loadStats()
+    }
+  } catch (error) {
+    if (error !== 'cancel') {
+      console.error('提交作业失败:', error)
+      ElMessage.error('提交失败')
+    }
+  }
+}
+
+// 查看作业详情
+const handleViewDetail = (row) => {
+  ElMessage.info(`查看作业详情：${row.assignmentName}`)
+  // 可以打开详情弹窗或跳转页面
+}
+
+// 查看作业解析
+const handleViewAnalysis = async (row) => {
+  try {
+    const res = await homeworkApi.getHomeworkAnalysis(row.id)
+    if (res && res.data) {
+      ElMessageBox.alert(res.data.analysis, `${row.assignmentName} - 作业解析`, {
+        confirmButtonText: '知道了',
+        dangerouslyUseHTMLString: true
+      })
+    }
+  } catch (error) {
+    console.error('获取作业解析失败:', error)
+    ElMessage.error('获取解析失败')
+  }
+}
+
+// 获取操作按钮
+const getActionButtons = (row) => {
+  const buttons = []
+
+  if (row.status === 'pending') {
+    buttons.push({ label: '提交作业', type: 'primary', handler: () => handleSubmitHomework(row) })
+  }
+
+  if (row.status === 'submitted') {
+    buttons.push({ label: '查看详情', type: 'info', handler: () => handleViewDetail(row) })
+  }
+
+  if (row.status === 'graded') {
+    buttons.push({ label: '查看解析', type: 'success', handler: () => handleViewAnalysis(row) })
+    buttons.push({ label: '查看详情', type: 'info', handler: () => handleViewDetail(row) })
+  }
+
+  if (row.status === 'overdue') {
+    buttons.push({ label: '补交作业', type: 'warning', handler: () => handleSubmitHomework(row) })
+  }
+
+  return buttons
+}
+
+// 搜索
+const handleSearch = () => {
+  pageInfo.value.page = 1
+  loadHomeworkList()
+}
+
+// 重置搜索
+const handleReset = () => {
+  searchModel.value = {
+    course: 'all',
+    status: 'all',
+    keyword: '',
+  }
+  pageInfo.value.page = 1
+  loadHomeworkList()
+}
 const handleExportImage = () => {
   exportToImage(containerRef.value, '作业跟踪')
 }
@@ -152,19 +232,39 @@ const handleExportImage = () => {
 const handleExportPDF = () => {
   exportToPDF(containerRef.value, '作业跟踪')
 }
+watch(() => pageInfo.value.page, () => {
+  loadHomeworkList()
+})
+
+watch(() => pageInfo.value.pageSize, () => {
+  pageInfo.value.page = 1
+  loadHomeworkList()
+})
+
+// 初始化
+onMounted(async () => {
+  await Promise.all([
+    loadCourseOptions(),
+    loadStatusOptions(),
+    loadStats()
+  ])
+  await loadHomeworkList()
+})
 </script>
 
 <template>
-  <div class="homework-tracking" ref="containerRef">
+  <div class="homework-tracking" ref="containerRef" v-loading="loading">
     <div class="container-header">
       <el-form inline label-width="80" :model="searchModel" class="select-box">
         <el-form-item label="状态" prop="status">
-          <el-select size="large" placeholder="搜索状态..." style="width: 240px" v-model="searchModel.status">
+          <el-select size="large" placeholder="选择状态" style="width: 180px" v-model="searchModel.status" clearable
+            @change="handleSearch">
             <el-option v-for="item in statusOptions" :key="item.value" :label="item.label" :value="item.value" />
           </el-select>
         </el-form-item>
         <el-form-item label="课程" prop="course">
-          <el-select size="large" placeholder="搜索课程..." style="width: 240px" v-model="searchModel.course">
+          <el-select size="large" placeholder="选择课程" style="width: 180px" v-model="searchModel.course" clearable
+            @change="handleSearch">
             <el-option v-for="item in courseOptions" :key="item.value" :label="item.label" :value="item.value" />
           </el-select>
         </el-form-item>
@@ -188,6 +288,7 @@ const handleExportPDF = () => {
         </el-button-group>
       </div>
     </div>
+    <!-- 统计卡片 -->
     <div class="section-content">
       <el-row :gutter="20">
         <el-col :span="6" v-for="item in statBoxes" :key="item.title">
@@ -200,44 +301,61 @@ const handleExportPDF = () => {
         <span>作业列表</span>
       </template>
       <!-- 表格区域 -->
-      <el-table v-loading="loading" :data="workList" max-height="500px" class="content-box">
-        <el-table-column label="作业名称">
+      <el-table v-loading="loading" :data="homeworkList" max-height="500px" class="content-box" stripe>
+        <el-table-column label="作业名称" min-width="180">
           <template #default="{ row }">
-            {{ row.assignmentName }}
+            <div class="homework-name">
+              <span class="name">{{ row.assignmentName }}</span>
+              <el-tag v-if="row.difficulty" size="small"
+                :type="row.difficulty === '困难' ? 'danger' : row.difficulty === '中等' ? 'warning' : 'success'">
+                {{ row.difficulty }}
+              </el-tag>
+            </div>
           </template>
         </el-table-column>
-        <el-table-column label="课程">
+        <el-table-column label="课程" width="140">
           <template #default="{ row }">
             <span>{{ row.course }}</span>
           </template>
         </el-table-column>
-        <el-table-column prop="targetSystem" label="截止日期">
+        <el-table-column prop="targetSystem" label="截止日期" width="160">
           <template #default="{ row }">
-            {{ row.deadline || '未知' }}
+            <span :class="{ 'overdue-text': row.status === 'overdue' }">
+              {{ row.deadline?.split(' ')[0] || '未知' }}
+            </span>
           </template>
         </el-table-column>
-        <el-table-column prop="template" label="状态">
+        <el-table-column prop="template" width="100">
           <template #default="{ row }">
-            {{ row.status }}
+            <el-tag :type="getStatusType(row.status)" size="small">
+              {{ getStatusText(row.status) }}
+            </el-tag>
           </template>
         </el-table-column>
-        <el-table-column prop="score" label="得分">
+        <el-table-column prop="score" label="得分" width="100">
           <template #default="{ row }">
-            {{ row?.score ? row?.score + '分' : '未评分' }}
+            <span v-if="row.score" class="score-text">{{ row.score }}分</span>
+            <span v-else class="no-score">未评分</span>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="130">
-          <template #default="{ row, $index }">
-            <!-- <div class="table-box">
-              <el-link underline="never"
-                @click="downloadReport({ record: { file: row.file, fileName: row.title } })">下载</el-link>
-              <el-link underline="never" type="primary" @click="openViewDialog(row)">查看</el-link>
-              <el-link underline="never" @click="openEditDialog(row)">编辑</el-link>
-            </div> -->
+        <el-table-column label="提交时间" width="160">
+          <template #default="{ row }">
+            <span v-if="row.submitTime">{{ row.submitTime?.split(' ')[0] }}</span>
+            <span v-else class="no-submit">未提交</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="操作" width="180" fixed="right">
+          <template #default="{ row }">
+            <div class="action-buttons">
+              <el-button v-for="btn in getActionButtons(row)" :key="btn.label" :type="btn.type" size="small" link
+                @click="btn.handler">
+                {{ btn.label }}
+              </el-button>
+            </div>
           </template>
         </el-table-column>
         <template #empty>
-          <el-empty description="没有数据"></el-empty>
+          <el-empty description="暂无作业数据"></el-empty>
         </template>
       </el-table>
       <template #footer>
@@ -270,10 +388,78 @@ const handleExportPDF = () => {
         margin-bottom: 0;
       }
     }
+     .export-btns {
+      display: flex;
+      gap: 10px;
+    }
   }
 
   .section-content {
     margin-top: 20px;
   }
+
+   .homework-name {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+
+    .name {
+      font-weight: 500;
+    }
+  }
+
+   .overdue-text {
+    color: #f56c6c;
+  }
+
+  .score-text {
+    color: #67c23a;
+    font-weight: 500;
+  }
+
+  .no-score,
+  .no-submit {
+    color: #909399;
+  }
+
+  .action-buttons {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+
+  .pagination-wrapper {
+    margin-top: 20px;
+    display: flex;
+    justify-content: flex-end;
+  }
+
+  .header-tip {
+    margin-left: 12px;
+    font-size: 12px;
+    color: #909399;
+  }
+}
+
+// 响应式
+@media (max-width: 1200px) {
+  .homework-tracking {
+    .container-header {
+      flex-direction: column;
+      align-items: stretch;
+    }
+  }
+}
+
+@media (max-width: 768px) {
+  .homework-tracking {
+    padding: 10px;
+
+    .action-buttons {
+      flex-direction: column;
+    }
+  }
+
 }
 </style>

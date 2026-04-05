@@ -1,147 +1,122 @@
 <script setup lang="js">
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted, computed, watch } from 'vue'
 import { exportToImage, exportToPDF } from '@/utils/export'
 import EChart from '@/components/EChart.vue'
 import ProgressStatus from './component/progress-status.vue'
 import CourseCard from './component/course-card.vue'
 import TimelineItem from './component/timeline-item.vue'
 import { Picture } from '@element-plus/icons-vue'
+import { courseApi } from '@/api/index.js'
+import { useAuthStore } from '@/stores/index.js'
+import { ElMessage } from 'element-plus'
 
 const containerRef = ref(null)
-const searchModel = ref({
-  courseType: '全部课程',
+const authStore = useAuthStore()
+const loading = ref(false)
+
+// 数据状态
+const overallStats = ref({
+  overallProgress: 0,
+  completedModules: 0,
+  totalModules: 0,
+  remainingModules: 0,
+  stats: []
 })
-const dialogVisible = ref(false)
-const options = [
-  {
-    value: '全部课程',
-    label: '全部课程',
-  },
-  {
-    value: '进行中',
-    label: '进行中',
-  },
-  {
-    value: '未开始',
-    label: '未开始',
-  },
-  {
-    value: '已结课',
-    label: '已结课',
-  },
-]
+
+const courses = ref([])
+const timeline = ref([])
+const studyTimeData = ref({
+  days: ['周一', '周二', '周三', '周四', '周五', '周六', '周日'],
+  hours: [0, 0, 0, 0, 0, 0, 0]
+})
+const statusOptions = ref([])
+
+const searchModel = ref({
+  courseType: 'all',
+})
 
 // 整体进度统计
-const overallProgress = ref(68)
-const stats = ref([
-  { label: '平均GPA', value: '4.2', number: '4.2' },
-  { label: '学习小时', value: '128', number: '128' },
-  { label: '作业提交率', value: '87%', number: '87%' }
-])
-
-// 课程列表数据
-const courses = ref([
-  {
-    id: 1,
-    title: '高等数学',
-    icon: 'fas fa-square-root-alt',
-    progress: 80,
-    meta: [
-      { label: '进度', value: '80%', icon: 'far fa-clock' },
-      { label: '作业', value: '3/5', icon: 'fas fa-pencil-alt' },
-      { label: '视频', value: '32/40', icon: 'fas fa-video' }
-    ],
-    teacherExtra: {
-      classAvg: '72%',
-      laggingCount: 3,
-      status: '3人滞后'
+const loadOverallStats = async () => {
+  try {
+    const res = await courseApi.getOverallStats(authStore.userId)
+    if (res && res.data) {
+      overallStats.value = res.data
     }
-  },
-  {
-    id: 2,
-    title: '大学英语',
-    icon: 'fas fa-language',
-    progress: 55,
-    meta: [
-      { label: '进度', value: '55%', icon: '' },
-      { label: '作业', value: '2/4', icon: '' },
-      { label: '视频', value: '18/30', icon: '' }
-    ],
-    teacherExtra: {
-      classAvg: '63%',
-      laggingCount: 2,
-      status: '2人滞后'
-    }
-  },
-  {
-    id: 3,
-    title: 'Python程序设计',
-    icon: 'fas fa-code',
-    progress: 35,
-    meta: [
-      { label: '进度', value: '35%', icon: '' },
-      { label: '项目', value: '1/3', icon: '' },
-      { label: '视频', value: '8/24', icon: '' }
-    ],
-    teacherExtra: {
-      classAvg: '42%',
-      laggingCount: 0,
-      status: '5人超前'
-    }
-  },
-  {
-    id: 4,
-    title: '物理实验',
-    icon: 'fas fa-flask',
-    progress: 72,
-    meta: [
-      { label: '进度', value: '72%', icon: '' },
-      { label: '实验', value: '8/12', icon: '' },
-      { label: '报告', value: '1/2', icon: '' }
-    ],
-    teacherExtra: {
-      classAvg: '68%',
-      laggingCount: 1,
-      status: '1人未提交'
-    }
+  } catch (error) {
+    console.error('加载整体进度失败:', error)
   }
-])
+}
 
-// 学习动态数据
-const timeline = ref([
-  {
-    id: 1,
-    icon: 'fas fa-check',
-    title: '完成高等数学第三章练习',
-    time: '今天 09:30',
-    detail: '得分 92% · 用时 45分钟'
-  },
-  {
-    id: 2,
-    icon: 'fas fa-video',
-    title: '观看英语听力视频',
-    time: '昨天 15:20',
-    detail: 'Unit 4 · 时长 45分钟'
-  },
-  {
-    id: 3,
-    icon: 'fas fa-pencil-alt',
-    title: '提交程序设计作业',
-    time: '前天 10:15',
-    detail: '项目一: 猜数字游戏 (待评分)'
-  },
-  {
-    id: 4,
-    icon: 'fas fa-users',
-    title: '参与小组讨论',
-    time: '3天前',
-    detail: '物理实验数据处理'
+// 课程列表
+const loadCourses = async () => {
+  try {
+    const res = await courseApi.getCourseList(authStore.userId, searchModel.value.status)
+    if (res && res.data) {
+      courses.value = res.data
+    }
+  } catch (error) {
+    console.error('加载课程列表失败:', error)
   }
-])
+}
 
-// 2. ECharts数据
+// 学习动态
+const loadTimeline = async () => {
+  try {
+    const res = await courseApi.getTimeline(authStore.userId, 1, 4)
+    if (res && res.data) {
+      timeline.value = res.data.list || []
+    }
+  } catch (error) {
+    console.error('加载学习动态失败:', error)
+  }
+}
+
+// 学习时间分布
+const loadStudyTime = async () => {
+  try {
+    const res = await courseApi.getStudyTime(authStore.userId)
+    if (res && res.data) {
+      studyTimeData.value = res.data
+    }
+  } catch (error) {
+    console.error('加载学习时间失败:', error)
+  }
+}
+
+// 加载状态选项
+const loadStatusOptions = async () => {
+  try {
+    const res = await courseApi.getStatusOptions()
+    if (res && res.data) {
+      statusOptions.value = res.data
+    }
+  } catch (error) {
+    console.error('加载状态选项失败:', error)
+  }
+}
+
+// 刷新所有数据
+const refreshData = async () => {
+  loading.value = true
+  try {
+    await Promise.all([
+      loadOverallStats(),
+      loadCourses(),
+      loadTimeline(),
+      loadStudyTime()
+    ])
+    ElMessage.success('数据已刷新')
+  } catch (error) {
+    console.error('刷新数据失败:', error)
+    ElMessage.error('数据加载失败')
+  } finally {
+    loading.value = false
+  }
+}
+
+// 环图数据
 const donutData = computed(() => ({
-  tooltip: { show: true },
+  tooltip: { show: true, formatter: '{b}: {d}%' },
   legend: { show: false },
   series: [
     {
@@ -151,31 +126,69 @@ const donutData = computed(() => ({
       label: { show: false },
       emphasis: { scale: false },
       data: [
-        { value: overallProgress.value, name: '已完成', itemStyle: { color: '#1d4e7c' } },
-        { value: 100 - overallProgress.value, name: '未完成', itemStyle: { color: '#d8e5f0' } }
+        { value: overallStats.value.overallProgress, name: '已完成', itemStyle: { color: '#1d4e7c' } },
+        { value: 100 - overallStats.value.overallProgress, name: '未完成', itemStyle: { color: '#d8e5f0' } }
       ]
     }
   ]
 }))
 
+// 学习时间柱状图
 const studyTimeChart = computed(() => ({
   title: {
-    text: "近7天学习时间分布"
+    text: "近7天学习时间分布",
+    left: 'center',
+    textStyle: {
+      fontSize: 14,
+      fontWeight: 'normal'
+    }
   },
-  tooltip: { show: true },
+  tooltip: {
+    trigger: 'axis',
+    formatter: '{b}<br/>学习时长: {c} 小时'
+  },
   legend: { show: false },
-  xAxis: {
-    data: ["周一", "周二", "周三", "周四", "周五", "周六", "周日"],
+  grid: {
+    left: '10%',
+    right: '5%',
+    top: '15%',
+    bottom: '5%',
+    containLabel: true
   },
-  yAxis: {},
+  xAxis: {
+    data: studyTimeData.value.days,
+    axisLabel: {
+      fontSize: 12
+    }
+  },
+  yAxis: {
+    name: '学习时长 (小时)',
+    axisLabel: {
+      formatter: '{value}h'
+    }
+  },
   series: [
     {
-      data: [2.5, 3.0, 2.8, 3.2, 2.0, 4.5, 3.5],
+      data: studyTimeData.value.hours,
       type: "bar",
       color: "#1d4e7c",
-    },
-  ],
+      barWidth: '50%',
+      itemStyle: {
+        borderRadius: [4, 4, 0, 0]
+      },
+      label: {
+        show: true,
+        position: 'top',
+        formatter: '{c}h'
+      }
+    }
+  ]
 }))
+
+// 处理搜索
+const handleSearch = () => {
+  refreshData()
+}
 
 const handleExportImage = () => {
   exportToImage(containerRef.value, '课程概览')
@@ -185,6 +198,15 @@ const handleExportPDF = () => {
   exportToPDF(containerRef.value, '课程概览')
 }
 
+// 监听状态变化
+watch(() => searchModel.value.status, () => {
+  loadCourses()
+})
+
+onMounted(async () => {
+  await loadStatusOptions()
+  await refreshData()
+})
 </script>
 
 <template>
@@ -192,8 +214,9 @@ const handleExportPDF = () => {
     <div class="container-header">
       <el-form inline label-width="80" :model="searchModel" class="select-box">
         <el-form-item label="课程状态" prop="courseType">
-          <el-select size="large" placeholder="搜索课程..." style="width: 240px" v-model="searchModel.courseType">
-            <el-option v-for="item in options" :key="item.value" :label="item.label" :value="item.value" />
+          <el-select size="large" placeholder="搜索课程..." style="width: 240px" v-model="searchModel.courseType"
+            @change="handleSearch">
+            <el-option v-for="item in statusOptions" :key="item.value" :label="item.label" :value="item.value" />
           </el-select>
         </el-form-item>
       </el-form>
@@ -220,10 +243,12 @@ const handleExportPDF = () => {
         </el-col>
         <el-col :span="18">
           <div class="progress-info">
-            <h2>整体学习进度 {{ overallProgress }}%</h2>
-            <p>已完成 24/35 个模块 · 剩余 11 个模块</p>
+            <h2>整体学习进度 {{ overallStats.overallProgress }}%</h2>
+            <p>已完成 {{ overallStats.completedModules }}/{{ overallStats.totalModules }} 个模块 · 剩余 {{
+              overallStats.remainingModules }} 个模块</p>
             <div class="status-list">
-              <ProgressStatus v-for="stat in stats" :key="stat.label" :number="stat.number" :label="stat.label" />
+              <ProgressStatus v-for="stat in overallStats.stats" :key="stat.label" :number="stat.number"
+                :label="stat.label" />
             </div>
           </div>
         </el-col>
@@ -234,7 +259,8 @@ const handleExportPDF = () => {
       <h3 class="section-header">
         <i class="fas fa-book-open" style="margin-right: 8px"></i> 我的课程
       </h3>
-      <el-row :gutter="20">
+      <el-empty v-if="courses.length === 0" description="暂无课程" />
+      <el-row v-else :gutter="20">
         <el-col :span="12" v-for="course in courses" :key="course.id" style="margin-bottom: 20px;">
           <CourseCard :course="course" />
         </el-col>
@@ -248,13 +274,14 @@ const handleExportPDF = () => {
             <h4>
               <i class="fas fa-history"></i> 最近学习动态
             </h4>
-            <el-button @click="dialogVisible = true">全部动态</el-button>
           </div>
-          <el-timeline>
-            <el-timeline-item v-for="item in timeline" :key="item.id" :timestamp="item.time" placement="top">
+          <el-timeline v-if="timeline.length > 0">
+            <el-timeline-item v-for="item in timeline" :key="item.id" :timestamp="item.time" placement="top"
+              :type="item.type === 'grade' ? 'primary' : 'info'">
               <TimelineItem :item="item" />
             </el-timeline-item>
           </el-timeline>
+          <el-empty v-else description="暂无动态" :image-size="80" />
         </el-card>
       </el-col>
       <el-col :span="14">
@@ -263,21 +290,6 @@ const handleExportPDF = () => {
         </el-card>
       </el-col>
     </el-row>
-
-    <el-dialog v-model="dialogVisible" width="700px" header-class="dialog-header" body-class="dialog-body"
-      footer-class="dialog-footer" :close-on-click-modal="false" destroy-on-close>
-      <template #header>{{ 'test' }}</template>
-      <template #default>
-        <el-scrollbar>
-          这是弹窗
-        </el-scrollbar>
-      </template>
-
-      <template #footer>
-        <el-button @click="dialogVisible = false">取消</el-button>
-        <el-button type="primary">确定</el-button>
-      </template>
-    </el-dialog>
   </div>
 </template>
 

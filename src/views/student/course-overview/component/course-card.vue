@@ -1,6 +1,6 @@
 <script setup>
 const props = defineProps({
-  course: { type: Object, required: true },
+  course: { type: Object, required: true,icon:{type:String,default:'fa-code'} },
 });
 </script>
 
@@ -8,7 +8,7 @@ const props = defineProps({
   <el-card shadow="hover" class="course-card">
     <div class="content">
       <div class="course-icon">
-        <i :class="course.icon"></i>
+        <i :class="`fas ${course.icon}`"></i>
       </div>
       <div class="course-details">
         <div class="course-title">{{ course.title }}</div>

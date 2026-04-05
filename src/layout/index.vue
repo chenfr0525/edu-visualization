@@ -2,11 +2,12 @@
 import { computed } from 'vue'
 import teacherLayout from './components/teacherLayout.vue'
 import studentLayout from './components/studentLayout.vue'
+import { useAuthStore } from '@/stores/index.js'
 
-// 假设从 store 或 props 获取角色
+const authStore = useAuthStore()
+
 const userRole = computed(() => {
-  // 这里可以从 Pinia/Vuex 获取，或者从 localStorage 获取
-  return 'teacher' // 示例：'teacher' 或 'student'
+  return authStore.userRole
 })
 
 const currentLayout = computed(() => {

@@ -1,5 +1,36 @@
 import Mock from 'mockjs'
+import { USE_MOCK } from '@/config/env'
 
+// 配置 Mock 延迟
+Mock.setup({
+  timeout: '200-600',
+})
+
+import mockAuth from './modules/auth'
+import mockPersonalCenter from './modules/personal-center'
+import mockStudentDashboard from './modules/student-dashboard'
+import mockStudentKnowledge from './modules/student-knowledge'
+import mockStudentCourse from './modules/student-course'
+import mockStudentHomework from './modules/student-homework'
+import mockStudentGrade from './modules/student-grade'
+
+// 注册所有 mock
+export function setupMock() {
+  // 只在开发环境启用
+  if (USE_MOCK) {
+    mockAuth()
+    mockPersonalCenter()
+    mockStudentDashboard()
+    mockStudentKnowledge()
+    mockStudentCourse()
+    mockStudentHomework()
+    mockStudentGrade()
+
+    console.log('✅ Mock 数据已启用')
+  }
+}
+
+//下面数据后面删除
 // 模拟成绩分布数据 (箱线图用)
 export const getGradeBoxData = () => {
   return Mock.mock({

@@ -1,8 +1,7 @@
 <script setup>
 import { computed, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
-import { useAuthStore } from '@/stores/auth'
-import { useAppStore } from '@/stores/app'
+import { useAuthStore } from '@/stores/index.js'
 import {
   Monitor,
   ArrowDown,
@@ -17,7 +16,6 @@ import { ElMessageBox } from 'element-plus'
 const router = useRouter()
 const route = useRoute()
 const authStore = useAuthStore()
-const appStore = useAppStore()
 
 const handleLogout = () => {
   ElMessageBox.confirm(
