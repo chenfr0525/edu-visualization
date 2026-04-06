@@ -2,12 +2,17 @@
 import { computed } from 'vue'
 import teacherLayout from './components/teacherLayout.vue'
 import studentLayout from './components/studentLayout.vue'
-import { useAuthStore } from '@/stores/index.js'
+import { useAuthStore, useMenuStore } from '@/stores/index.js'
 
 const authStore = useAuthStore()
+const menuStore = useMenuStore()
 
 const userRole = computed(() => {
   return authStore.userRole
+})
+
+const menuList = computed(() => {
+  return menuStore.rawRoutes.map((menu) => ({ name: menu.name, path: menu.path.startsWith('/') ? menu.path : `/${menu.path}`, icon: menu.icon }))
 })
 
 const currentLayout = computed(() => {
@@ -20,5 +25,5 @@ const currentLayout = computed(() => {
 </script>
 
 <template>
-  <component :is="currentLayout" />
+  <component :is="currentLayout" :menuList="menuList" />
 </template>

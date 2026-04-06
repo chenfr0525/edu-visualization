@@ -11,8 +11,14 @@ import {
   Star,
   Files,
 } from '@element-plus/icons-vue'
-import { ElMessageBox } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 
+const props=defineProps({
+  menuList: {
+    type: Array,
+    default: () => [],
+  },
+})
 const router = useRouter()
 const route = useRoute()
 const authStore = useAuthStore()
@@ -45,15 +51,6 @@ const handleLogout = () => {
 
 const activeMenu = computed(() => route.path)
 
-// 侧边栏菜单项配置
-const menuItems = [
-  { name: '个人驾驶舱', path: '/', icon: Monitor, roles: ['student'] },
-  { name: '知识点掌握', path: '/knowledge-mastery', icon: Star, roles: ['student'] },
-  { name: '课程概览', path: '/course-overview', icon: Memo, roles: ['student'] },
-  { name: '作业跟踪', path: '/homework-tracking', icon: Files, roles: ['student'] },
-  { name: '成绩分析', path: '/grade-analysis', icon: Moon, roles: ['student'] },
-  { name: '个人中心', path: '/personal-center', icon: User, roles: ['student'] },
-]
 </script>
 
 <template>
@@ -87,7 +84,7 @@ const menuItems = [
         <el-card>
           <el-menu :default-active="activeMenu" ellipsis class="el-menu-popper-demo" mode="horizontal"
             :popper-offset="16" style="max-width: 100%" router>
-            <el-menu-item v-for="item in menuItems" :key="item.path" :index="item.path">
+            <el-menu-item v-for="item in menuList" :key="item.path" :index="item.path">
               <el-icon>
                 <component :is="item.icon" />
               </el-icon>

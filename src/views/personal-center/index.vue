@@ -68,11 +68,8 @@ const handleChangePassword = async (data) => {
       ...data
     })
     if (res && res.code === 200) {
-      ElMessage.success('密码修改成功，请重新登录')
+      ElMessage.success('密码修改成功')
       passwordDialogVisible.value = false
-      // 可选：退出登录
-      // authStore.logout()
-      // router.push('/login')
     }
   } catch (error) {
     console.error('修改密码失败:', error)

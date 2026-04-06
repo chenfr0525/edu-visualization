@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { authApi } from '@/api'
+import { useMenuStore } from './menu'
 
 export const useAuthStore = defineStore(
   'auth',
@@ -41,15 +42,11 @@ export const useAuthStore = defineStore(
     }
 
     // 登出
-    async function logout() {
-      try {
-        await authApi.logout()
-      } catch (error) {
-        console.error('登出请求失败:', error)
-      } finally {
-        token.value = ''
-        user.value = null
-      }
+    function logout() {
+      const menuStore = useMenuStore()
+      token.value = ''
+      user.value = null
+      menuStore.clearRoutes()
     }
 
     return {

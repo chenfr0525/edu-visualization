@@ -18,6 +18,13 @@ import {
 } from '@element-plus/icons-vue'
 import { ElMessageBox } from 'element-plus'
 
+const props=defineProps({
+  menuList: {
+    type: Array,
+    default: () => [],
+  },
+})
+
 const router = useRouter()
 const route = useRoute()
 const authStore = useAuthStore()
@@ -54,18 +61,6 @@ const activeMenu = computed(() => route.path)
 
 const isCollapse = computed(() => !appStore.sidebarOpened)
 const asideWidth = computed(() => (appStore.isMobile ? '0px' : isCollapse.value ? '64px' : '220px'))
-
-// 侧边栏菜单项配置
-const menuItems = [
-  { name: '教学看板', path: '/', icon: Monitor, roles: ['teacher'] },
-  { name: '学生管理', path: '/user-manage', icon: User, roles: ['teacher'] },
-  { name: '作业管理', path: '/work-manage', icon: MessageBox, roles: ['teacher'] },
-  { name: '考试管理', path: '/exam-manage', icon: Moon, roles: ['teacher'] },
-  { name: '课程分析', path: '/course-analysis', icon: Memo, roles: ['teacher'] },
-  { name: '班级成绩', path: '/class-grade', icon: Star, roles: ['teacher'] },
-  { name: '活跃度监控', path: '/activity-monitor', icon: Files, roles: ['teacher'] },
-  { name: '个人中心', path: '/personal-center', icon: User, roles: ['teacher'] },
-]
 </script>
 
 <template>
@@ -78,7 +73,7 @@ const menuItems = [
       </div>
       <el-menu :default-active="activeMenu" class="el-menu-vertical" text-color="var(--el-text-color-regular)"
         active-text-color="#fff" router :collapse="isCollapse">
-        <el-menu-item v-for="item in menuItems" :key="item.path" :index="item.path">
+        <el-menu-item v-for="item in menuList" :key="item.path" :index="item.path">
           <el-icon>
             <component :is="item.icon" />
           </el-icon>

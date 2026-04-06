@@ -47,6 +47,112 @@ const users = [
   },
 ]
 
+//菜单
+const menuConfig = {
+  student: [
+    {
+      name: '个人驾驶舱',
+      path: 'dashboard',
+      component: 'student/dashboard/index.vue',
+      icon: 'Monitor',
+      meta: { title: '控制台', keepAlive: true },
+    },
+    {
+      name: '知识点掌握',
+      path: 'knowledge-mastery',
+      component: 'student/knowledge-mastery/index.vue',
+      icon: 'Star',
+      meta: { title: '知识点掌握' },
+    },
+    {
+      name: '课程概览',
+      path: 'course-overview',
+      component: 'student/course-overview/index.vue',
+      icon: 'Memo',
+      meta: { title: '课程概览' },
+    },
+    {
+      name: '作业跟踪',
+      path: 'homework-tracking',
+      component: 'student/homework-tracking/index.vue',
+      icon: 'Files',
+      meta: { title: '作业跟踪' },
+    },
+    {
+      name: '成绩分析',
+      path: 'grade-analysis',
+      component: 'student/grade-analysis/index.vue',
+      icon: 'TrendCharts',
+      meta: { title: '成绩分析' },
+    },
+    {
+      name: '个人中心',
+      path: '/personal-center',
+      component: 'personal-center/index.vue',
+      icon: 'User',
+      meta: { title: '个人中心' },
+    },
+  ],
+  teacher: [
+    {
+      name: '教学看板',
+      path: 'dashboard',
+      component: 'teacher/dashboard/index.vue',
+      icon: 'Monitor',
+      meta: { title: '控制台' },
+    },
+    {
+      name: '学生管理',
+      path: 'user-manage',
+      component: 'teacher/user-manage/index.vue',
+      icon: 'User',
+      meta: { title: '学生管理' },
+    },
+    {
+      name: '作业管理',
+      path: 'work-manage',
+      component: 'teacher/work-manage/index.vue',
+      icon: 'MessageBox',
+      meta: { title: '作业管理' },
+    },
+    {
+      name: '考试管理',
+      path: 'exam-manage',
+      component: 'teacher/exam-manage/index.vue',
+      icon: 'Calendar',
+      meta: { title: '考试管理' },
+    },
+    {
+      name: '课程分析',
+      path: 'course-analysis',
+      component: 'teacher/course-analysis/index.vue',
+      icon: 'Memo',
+      meta: { title: '课程分析' },
+    },
+    {
+      name: '班级成绩',
+      path: 'class-grade',
+      component: 'teacher/class-grade/index.vue',
+      icon: 'Star',
+      meta: { title: '班级成绩' },
+    },
+    {
+      name: '活跃度监控',
+      path: 'activity-monitor',
+      component: 'teacher/activity-monitor/index.vue',
+      icon: 'Monitor',
+      meta: { title: '活跃度监控' },
+    },
+    {
+      name: '个人中心',
+      path: '/personal-center',
+      component: 'personal-center/index.vue',
+      icon: 'User',
+      meta: { title: '个人中心' },
+    },
+  ],
+}
+
 // 存储 token
 const tokens = new Map()
 
@@ -118,8 +224,26 @@ export default function mockAuth() {
     return success(userInfo, '注册成功')
   })
 
-  // 登出
-  Mock.mock(/\/api\/auth\/logout/, 'post', () => {
-    return success(null, '登出成功')
+  // 获取菜单
+  Mock.mock(/\/api\/menu\/list/, 'get', (options) => {
+    // // 从请求头获取token
+    // const token = options.headers?.Authorization?.replace('Bearer ', '')
+    // console.log('token:', token)
+    // if (!token) {
+    //   return error('未登录', 401)
+    // }
+
+    // const tokenInfo = tokens.get(token)
+    // if (!tokenInfo) {
+    //   return error('token无效', 401)
+    // }
+
+    // const user = users.find((u) => u.id === tokenInfo.userId)
+    // if (!user) {
+    //   return error('用户不存在', 404)
+    // }
+
+    const menus = menuConfig['student'] || []
+    return success(menus)
   })
 }

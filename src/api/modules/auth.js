@@ -19,11 +19,11 @@ export const authApi = {
     })
   },
 
-  // 登出
-  logout() {
+  // 获取用户菜单
+  getMenus() {
     return request({
-      url: '/auth/logout',
-      method: 'post',
+      url: '/menu/list',
+      method: 'get',
     })
   },
 }
