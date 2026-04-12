@@ -10,6 +10,13 @@ export const dashboardApi = {
     })
   },
 
+  getStudentDashbord(studentId) {
+    return request({
+      url: `/dashboard/student/${studentId}`,
+      method: 'get',
+    })
+  },
+
   // 获取统计数据
   getDashboardStats(studentId) {
     return request({
@@ -67,7 +74,7 @@ export const dashboardApi = {
   // 获取学期列表
   getSemesterList(studentId) {
     return request({
-      url: '/student/semesters',
+      url: '/semester/list',
       method: 'get',
       params: { studentId },
     })
@@ -239,93 +246,61 @@ export const courseApi = {
 
 export const homeworkApi = {
   // 获取课程选项
-  getCourseOptions(studentId) {
+  getCourseOptionsByStudentId(studentId) {
     return request({
-      url: '/homework/courses',
+      url: '/student/courseList',
       method: 'get',
       params: { studentId },
-    })
-  },
-
-  // 获取状态选项
-  getStatusOptions() {
-    return request({
-      url: '/homework/status-options',
-      method: 'get',
     })
   },
 
   // 获取统计数据
   getStats(studentId) {
     return request({
-      url: '/homework/stats',
+      url: `/analysis/student/homework/statistics/${studentId}`,
       method: 'get',
-      params: { studentId },
     })
   },
 
   // 获取作业列表
   getHomeworkList(studentId, params) {
     return request({
-      url: '/homework/list',
+      url: `/analysis/student/homework/list/${studentId}`,
       method: 'get',
-      params: {
-        studentId,
-        ...params,
-      },
+      params,
     })
   },
 
   // 获取作业详情
   getHomeworkDetail(studentId, homeworkId) {
     return request({
-      url: '/homework/detail',
+      url: `/analysis/student/homework/detail/${studentId}/${homeworkId}`,
       method: 'get',
-      params: { studentId, homeworkId },
     })
   },
 
-  // 提交作业
-  submitHomework(data) {
+  getOverallSuggestion(studentID) {
     return request({
-      url: '/homework/submit',
-      method: 'post',
-      data,
-    })
-  },
-
-  // 获取作业解析
-  getHomeworkAnalysis(homeworkId) {
-    return request({
-      url: '/homework/analysis',
+      url: `/analysis/student/homework/overall-analysis/${studentID}`,
       method: 'get',
-      params: { homeworkId },
     })
   },
 
   // 获取作业趋势统计
-  getHomeworkTrend() {
+  getHomeworkTrend(studentId, courseId) {
     return request({
-      url: '/homework/trend',
+      url: `/analysis/student/homework/trend/${studentId}`,
       method: 'get',
+      params: { courseId },
     })
   },
 }
 
 export const gradeApi = {
-  // 获取学期选项
-  getTermOptions(studentId) {
-    return request({
-      url: '/grade/terms',
-      method: 'get',
-      params: { studentId },
-    })
-  },
-
   // 获取状态选项
-  getStatusOptions() {
+  getStatusCardData(studentId) {
     return request({
-      url: '/grade/status-options',
+      url: `/analysis/student/exam/statistics/${studentId}`,
       method: 'get',
     })
   },
@@ -342,12 +317,9 @@ export const gradeApi = {
   // 获取考试列表
   getExamList(studentId, params) {
     return request({
-      url: '/grade/exam-list',
+      url: `/analysis/student/exam/list/${studentId}`,
       method: 'get',
-      params: {
-        studentId,
-        ...params,
-      },
+      params,
     })
   },
 
@@ -361,29 +333,26 @@ export const gradeApi = {
   },
 
   // 获取我的成绩趋势
-  getMyGradeTrend(studentId, course) {
+  getMyGradeTrend(studentId, courseId) {
     return request({
-      url: '/grade/my-trend',
+      url: `/analysis/student/exam/trend/${studentId}`,
       method: 'get',
-      params: { studentId, course },
+      params: { courseId },
     })
   },
 
   // 获取考试成绩详情
   getExamDetail(studentId, examId) {
     return request({
-      url: '/grade/exam-detail',
+      url: `/analysis/student/exam/detail/${studentId}/${examId}`,
       method: 'get',
-      params: { studentId, examId },
     })
   },
 
-  // 获取成绩分析报告
-  getGradeReport(studentId, examId) {
+  getOverallSuggestionExam(studentId) {
     return request({
-      url: '/grade/report',
+      url: `/analysis/student/exam/overall-analysis/${studentId}`,
       method: 'get',
-      params: { studentId, examId },
     })
   },
 }

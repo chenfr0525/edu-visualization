@@ -11,32 +11,28 @@ import { ElMessage } from 'element-plus'
 const dashboardRef = ref(null)
 const authStore = useAuthStore()
 const loading = ref(false)
+const dashboardData = ref(null)
 
 // 数据状态
-const statsData = ref({
-  courseCount: 0,
-  studyHours: 0,
-  avgScore: 0,
-  classRank: 0
+const statsData = computed(() => {
+  return {
+    homeworkCompletionRate: dashboardData.value?.homeworkCompletionRate || 0,
+    homeworkAvgScore: dashboardData.value?.homeworkAvgScore || 0,
+    avgScore: dashboardData.value?.avgScore || 0,
+    latestRank: dashboardData.value?.latestRank || 0
+  }
 })
 
-const knowledgeData = ref({
-  current: [0, 0, 0, 0, 0, 0],
-  classAvg: [0, 0, 0, 0, 0, 0],
-  indicators: []
+const knowledgeData = computed(() => {
+  return dashboardData.value?.knowledgeRadarData || { 'Vue3 基础': 0, ' Pinia 状态管理': 0, 'Vue Router 路由': 0, 'ECharts 可视化': 0, 'Element Plus 组件': 0, '项目实战能力': 0 }
 })
 
-const gradeTrendData = ref({
-  exams: [],
-  scores: [],
-  classAvg: []
-})
+const gradeTrendData = computed(() => dashboardData.value?.scoreTrend || [{ examName: '考试一', score: 0, classRank: 0 }])
 
 const attendanceData = ref([])
 
 // 选项数据
-const semesterOptions = ref([]) // 动态获取，不再写死
-const courseOptions = ref([])
+const semesterOptions = ref([])
 const searchModel = ref({
   semester: '',
   course: '',
@@ -46,114 +42,28 @@ const searchModel = ref({
 const loadSemesterOptions = async () => {
   try {
     const res = await dashboardApi.getSemesterList(authStore.userId)
-    if (res && res.data) {
-      semesterOptions.value = res.data
-      // 默认选中当前学期
-      const currentSemester = res.data.find(s => s.isCurrent)
-      if (currentSemester) {
-        searchModel.value.semester = currentSemester.value
-        // 加载课程选项
-        await loadCourseOptions()
-      } else if (res.data.length > 0) {
-        searchModel.value.semester = res.data[0].value
-        await loadCourseOptions()
-      }
-    }
+    semesterOptions.value = res.data
   } catch (error) {
     console.error('加载学期列表失败:', error)
     ElMessage.error('加载学期列表失败')
   }
 }
 
-// 根据学期加载课程选项
-const loadCourseOptions = async () => {
-  if (!searchModel.value.semester) {
-    courseOptions.value = []
-    return
-  }
-  
+const loadData = async () => {
   try {
-    const res = await dashboardApi.getCourseOptions(authStore.userId, searchModel.value.semester)
-    if (res && res.data) {
-      courseOptions.value = res.data
-      // 清空课程选择
-      searchModel.value.course = ''
-    }
+    console.log('正在加载Dashboard数据...', authStore.user)
+    const res = await dashboardApi.getStudentDashbord(authStore?.userId || '1')
+    console.log('Dashboard数据:', res.data)
+    dashboardData.value = res.data
   } catch (error) {
-    console.error('加载课程选项失败:', error)
-    ElMessage.error('加载课程选项失败')
-  }
-}
-
-// 加载统计数据
-const loadStats = async () => {
-  try {
-    let res
-    if (searchModel.value.semester && searchModel.value.course) {
-      // 如果有学期和课程筛选，使用带筛选的接口
-      res = await dashboardApi.getDashboardStatsByCourse(
-        authStore.userId, 
-        searchModel.value.semester, 
-        searchModel.value.course
-      )
-    } else {
-      res = await dashboardApi.getDashboardStats(authStore.userId)
-    }
-    if (res && res.data) {
-      statsData.value = res.data
-    }
-  } catch (error) {
-    console.error('加载统计数据失败:', error)
-  }
-}
-
-// 加载知识点掌握数据
-const loadKnowledgeMastery = async () => {
-  try {
-    let res
-    if (searchModel.value.course) {
-      // 如果有课程筛选，使用带课程的接口
-      res = await dashboardApi.getKnowledgeMasteryByCourse(authStore.userId, searchModel.value.course)
-    } else {
-      res = await dashboardApi.getKnowledgeMastery(authStore.userId)
-    }
-    if (res && res.data) {
-      knowledgeData.value = res.data
-    }
-  } catch (error) {
-    console.error('加载知识点数据失败:', error)
-  }
-}
-
-// 加载成绩趋势
-const loadGradeTrend = async () => {
-  try {
-    const res = await dashboardApi.getGradeTrend(authStore.userId)
-    if (res && res.data) {
-      gradeTrendData.value = res.data
-    }
-  } catch (error) {
-    console.error('加载成绩趋势失败:', error)
-  }
-}
-
-// 加载出勤数据
-const loadAttendance = async () => {
-  try {
-    const res = await dashboardApi.getAttendanceData(authStore.userId)
-    if (res && res.data) {
-      attendanceData.value = res.data
-    }
-  } catch (error) {
-    console.error('加载出勤数据失败:', error)
+    console.error('数据加载失败:', error)
+    ElMessage.error('加载dashboard数据加载失败')
   }
 }
 
 // 监听学期变化，重新加载课程选项
 watch(() => searchModel.value.semester, async (newSemester, oldSemester) => {
   if (newSemester && newSemester !== oldSemester) {
-    await loadCourseOptions()
-    // 学期变化后刷新数据
     await refreshData()
   }
 })
@@ -167,12 +77,7 @@ watch(() => searchModel.value.course, async () => {
 const refreshData = async () => {
   loading.value = true
   try {
-    await Promise.all([
-      loadStats(),
-      loadKnowledgeMastery(),
-      loadGradeTrend(),
-      loadAttendance()
-    ])
+    await loadData()
     ElMessage.success('数据已刷新')
   } catch (error) {
     console.error('刷新数据失败:', error)
@@ -184,25 +89,8 @@ const refreshData = async () => {
 
 // 知识点掌握雷达图数据
 const radarOption = computed(() => {
-  const indicators = Array.isArray(knowledgeData.value.indicators) && knowledgeData.value.indicators.length > 0
-    ? knowledgeData.value.indicators.map(name => ({ name, max: 100 }))
-    : [
-        { name: 'Vue3 基础', max: 100 },
-        { name: 'Pinia 状态管理', max: 100 },
-        { name: 'Vue Router 路由', max: 100 },
-        { name: 'ECharts 可视化', max: 100 },
-        { name: 'Element Plus 组件', max: 100 },
-        { name: '项目实战能力', max: 100 }
-      ]
-  
-  const currentData = Array.isArray(knowledgeData.value.current) && knowledgeData.value.current.length === indicators.length
-    ? knowledgeData.value.current
-    : [0, 0, 0, 0, 0, 0]
-  
-  const classAvgData = Array.isArray(knowledgeData.value.classAvg) && knowledgeData.value.classAvg.length === indicators.length
-    ? knowledgeData.value.classAvg
-    : [0, 0, 0, 0, 0, 0]
-
+  const indicators = Object.keys(knowledgeData.value).map(name => ({ name, max: 100 }));
+  const currentData = Object.values(knowledgeData.value);
   return {
     title: {
       text: '知识点掌握程度',
@@ -212,7 +100,7 @@ const radarOption = computed(() => {
       trigger: 'item'
     },
     legend: {
-      data: ['当前掌握程度', '班级平均水平'],
+      data: ['当前掌握程度'],
       left: 'left'
     },
     radar: {
@@ -244,21 +132,6 @@ const radarOption = computed(() => {
             itemStyle: {
               color: '#409EFF'
             }
-          },
-          {
-            value: classAvgData,
-            name: '班级平均水平',
-            areaStyle: {
-              color: 'rgba(103, 194, 58, 0.2)'
-            },
-            lineStyle: {
-              color: '#67C23A',
-              width: 2,
-              type: 'dashed'
-            },
-            itemStyle: {
-              color: '#67C23A'
-            }
           }
         ]
       }
@@ -268,17 +141,10 @@ const radarOption = computed(() => {
 
 // 学习成绩趋势折线图数据
 const lineOption = computed(() => {
-  const exams = Array.isArray(gradeTrendData.value.exams) && gradeTrendData.value.exams.length > 0
-    ? gradeTrendData.value.exams
-    : ['第一次作业', '第二次作业', '期中考试', '第三次作业', '第四次作业', '期末考试']
-  
-  const scores = Array.isArray(gradeTrendData.value.scores) && gradeTrendData.value.scores.length === exams.length
-    ? gradeTrendData.value.scores
-    : [0, 0, 0, 0, 0, 0]
-  
-  const classAvg = Array.isArray(gradeTrendData.value.classAvg) && gradeTrendData.value.classAvg.length === exams.length
-    ? gradeTrendData.value.classAvg
-    : [0, 0, 0, 0, 0, 0]
+
+  const scores = gradeTrendData.value.map(item => item.score);
+  const exams = gradeTrendData.value.map(item => item.examName);
+  const classRank = gradeTrendData.value.map(item => item.classRank);
 
   return {
     title: {
@@ -289,7 +155,7 @@ const lineOption = computed(() => {
       trigger: 'axis'
     },
     legend: {
-      data: ['我的成绩', '班级平均分'],
+      data: ['我的成绩', '班级排名'],
       left: 'left'
     },
     grid: {
@@ -334,8 +200,8 @@ const lineOption = computed(() => {
         }
       },
       {
-        name: '班级平均分',
-        data: classAvg,
+        name: '班级排名',
+        data: classRank,
         type: 'line',
         smooth: true,
         symbol: 'diamond',
@@ -352,10 +218,10 @@ const lineOption = computed(() => {
 
 // 班级排名仪表盘数据
 const gaugeOption = computed(() => {
-  const percent = statsData.value.classRank > 0 
-    ? Math.round((1 - statsData.value.classRank / 45) * 100)
+  const percent = statsData.value.latestRank > 0
+    ? Math.round((1 - statsData.value.latestRank / 45) * 100)
     : 0
-  
+
   return {
     title: {
       text: '班级排名位置',
@@ -520,12 +386,7 @@ onMounted(async () => {
       <el-form inline label-width="80" :model="searchModel" class="select-box">
         <el-form-item label="学期" prop="semester">
           <el-select size="large" v-model="searchModel.semester" placeholder="请选择学期" style="width: 240px">
-            <el-option v-for="item in semesterOptions" :key="item.value" :label="item.label" :value="item.value" />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="课程" prop="course">
-          <el-select size="large" v-model="searchModel.course" placeholder="请选择课程" style="width: 240px">
-            <el-option v-for="item in courseOptions" :key="item.value" :label="item.label" :value="item.value" />
+            <el-option v-for="item in semesterOptions" :key="item.id" :label="item.name" :value="item.id" />
           </el-select>
         </el-form-item>
       </el-form>
@@ -550,16 +411,26 @@ onMounted(async () => {
 
     <el-row :gutter="20" style="margin-top: 20px;">
       <el-col :span="6">
-        <StatBox icon="fa-book-open" title="已学课程" :stat-num="statsData.courseCount" />
+        <StatBox icon="fa-book-open" title="作业完成率" :rate="statsData.homeworkCompletionRate" />
       </el-col>
       <el-col :span="6">
-        <StatBox icon="fa-clock" title="学习时长" :stat-num="statsData.studyHours" unit="小时" />
+        <StatBox icon="fa-clock" title="作业平均分" :stat-num="statsData.homeworkAvgScore" />
       </el-col>
       <el-col :span="6">
         <StatBox icon="fa-pencil-alt" title="平均分" :stat-num="statsData.avgScore" />
       </el-col>
       <el-col :span="6">
-        <StatBox icon="fa-trophy" title="班级排名" :stat-num="statsData.classRank" />
+        <StatBox icon="fa-trophy" title="班级排名" :stat-num="statsData.latestRank" />
+      </el-col>
+    </el-row>
+
+    <el-row :gutter="20" style="margin-top: 20px;">
+      <el-col :span="24">
+        <el-card shadow="hover" header="🤖 AI 学习建议">
+          <div class="ai-suggestions">
+            <div class="ai-content">{{ dashboardData?.aiSuggestions || '暂无AI建议，请先完成更多学习活动' }}</div>
+          </div>
+        </el-card>
       </el-col>
     </el-row>
 
@@ -578,13 +449,10 @@ onMounted(async () => {
             <el-col :span="7">
               <div class="echart-desc">
                 <div style="font-size: 3rem; font-weight: 700; color: #1d4e7c">
-                  {{ statsData.classRank }}/45
+                  {{ statsData.latestRank }}
                 </div>
                 <div style="font-size: 1.1rem; margin-top: 8px">
-                  超过全班 <strong>{{ Math.round((1 - statsData.classRank / 45) * 100) }}%</strong> 的同学
-                </div>
-                <div class="badge success" style="margin-top: 16px">
-                  📈 稳步提升中
+                  超过全班 <strong>{{ Math.round((1 - statsData.latestRank / 45) * 100) }}%</strong> 的同学
                 </div>
               </div>
             </el-col>
@@ -634,6 +502,17 @@ onMounted(async () => {
 
   .echart-desc {
     padding-top: 80px;
+  }
+
+  .ai-suggestions {
+    .ai-content {
+      white-space: pre-wrap;
+      padding: 16px;
+      background-color: #f5f7fa;
+      border-radius: 8px;
+      line-height: 1.6;
+      color: #606266;
+    }
   }
 }
 </style>

@@ -13,7 +13,7 @@ import {
 } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 
-const props=defineProps({
+const props = defineProps({
   menuList: {
     type: Array,
     default: () => [],
@@ -50,7 +50,7 @@ const handleLogout = () => {
 }
 
 const activeMenu = computed(() => route.path)
-
+console.log('当前路径:', props.menuList)
 </script>
 
 <template>

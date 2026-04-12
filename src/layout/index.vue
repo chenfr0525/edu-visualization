@@ -17,8 +17,8 @@ const menuList = computed(() => {
 
 const currentLayout = computed(() => {
   const layoutMap = {
-    teacher: teacherLayout,
-    student: studentLayout
+    "TEACHER": teacherLayout,
+    "STUDENT": studentLayout
   }
   return layoutMap[userRole.value] || teacherLayout // 默认布局
 })

@@ -4,30 +4,57 @@ const props = defineProps({
   status: {
     type: String,
     required: true,
-    validator: (value) => ['INPROGRESS', 'COMPLETED', 'PREPARE'].includes(value)
+    validator: (value) => ['UPCOMING', 'COMPLETED', 'ONGOING'].includes(value)
   },
   exam: {
     type: Object,
     required: true
+  },
+  handleClick: {
+    type: Function,
+    required: false
   }
 });
+const getTypeName = (type) => {
+  switch (type) {
+    case 'MIDTERM':
+      return '期中考试';
+    case 'FINAL':
+      return '期末考试';
+    case 'UNIT':
+      return '单元测试';
+    case 'MONTHLY':
+      return '月考';
+    case 'MOCK':
+      return '模拟考试';
+    default:
+      return '测试';
+  }
+}
 </script>
 
 <template>
   <el-card shadow="hover" class="exam-item">
     <div class="exam-content">
       <div class="exam-header">
-        <span class="exam-title">{{ exam.type }} - {{ exam.course }}</span>
+        <span class="exam-title">{{ getTypeName(exam.type) }} - {{ exam.courseName }}</span>
         <span class="exam-badge"
-          :class="{ 'badge-inprogress': status === 'INPROGRESS', 'badge-completed': status === 'COMPLETED', 'badge-prepare': status === 'PREPARE' }">{{
-            status === 'INPROGRESS' ? '进行中' : status === 'COMPLETED' ? '已完成' : '待开始' }} </span>
+          :class="{ 'badge-inprogress': status === 'ONGOING', 'badge-completed': status === 'COMPLETED', 'badge-prepare': status === 'UPCOMING' }">{{
+            status === 'UPCOMING' ? '待开始' : status === 'ONGOING' ? '进行中' : '已完成' }} </span>
         <div class="exam-meta">
-          <span><i class="far fa-clock"></i> {{ exam.date }}</span>
+          <span><i class="far fa-clock"></i> {{ exam.examDate?.slice(0, 3)?.join('-') }}</span>
         </div>
       </div>
-      <div class="exam-actions">
-        <el-button type="primary" size="large"><i class="far fa-eye"></i> 查看详情</el-button>
-        <el-button size="large" :disabled="status !== 'COMPLETED'"><i class="fas fa-chart-line"></i> 错题统计</el-button>
+      <div class="exam-footer">
+        <div class="exam-score" v-if="exam?.myScore">
+          <h4>我的成绩:<p>{{ exam.myScore }}</p>
+          </h4>
+          <h4>班级排名:<p>{{ exam.classRank }}</p>
+          </h4>
+        </div>
+        <div class="exam-actions">
+          <el-button type="primary" size="large" @click="handleClick(exam)"><i class="far fa-eye"></i> 查看详情</el-button>
+        </div>
       </div>
     </div>
   </el-card>
@@ -79,33 +106,57 @@ const props = defineProps({
 
     }
 
-    .exam-actions {
+    .exam-footer {
       display: flex;
-      gap: 12px;
-      margin-top: 18px;
-      padding-top: 16px;
-      border-top: 1px dashed #caddf0;
+      justify-content: space-between;
+      align-items: center;
+      height: 120px;
 
-      .btn-sm {
-        border: 1px solid #b3cbe5;
-        background: white;
-        padding: 8px 22px;
-        border-radius: 40px;
-        color: #1d4e7c;
-        font-size: 0.9rem;
-        cursor: default;
+      .exam-score {
+        display: flex;
+        gap: 20px;
+
+        h4 {
+          margin-top: 60px;
+          font-weight: 500;
+          color: #1d4e7c;
+
+          p {
+            font-size: 1.2rem;
+            font-weight: 700;
+          }
+        }
       }
 
-      .btn-primary-sm {
-        background: #1d4e7c;
-        color: white;
-        padding: 8px 24px;
-        border-radius: 40px;
-        border: none;
-        font-size: 0.9rem;
-        cursor: default;
+      .exam-actions {
+        display: flex;
+        gap: 12px;
+        border-top: 1px dashed #caddf0;
+        margin-top: 20px;
+
+        .btn-sm {
+          border: 1px solid #b3cbe5;
+          background: white;
+          padding: 8px 22px;
+          border-radius: 40px;
+          color: #1d4e7c;
+          font-size: 0.9rem;
+          cursor: default;
+        }
+
+        .btn-primary-sm {
+          background: #1d4e7c;
+          color: white;
+          padding: 8px 24px;
+          border-radius: 40px;
+          border: none;
+          font-size: 0.9rem;
+          cursor: default;
+        }
       }
     }
+
+
   }
 
 }

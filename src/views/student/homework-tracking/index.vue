@@ -2,27 +2,34 @@
 import { ref, computed, onMounted, watch } from 'vue'
 import { exportToImage, exportToPDF } from '@/utils/export'
 import StatBox from '../dashboard/component/stat-box.vue'
-import { Picture } from '@element-plus/icons-vue'
 import { homeworkApi } from '@/api/index.js'
-import { useAuthStore } from '@/stores/index.js'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { authApi } from '@/api/index.js'
+import EChart from '@/components/EChart.vue'
 
 const containerRef = ref(null)
-const authStore = useAuthStore()
+const userInfo = ref(null)
 const loading = ref(false)
+const detailDrawerVisible = ref(false)
+const currentHomework = ref(null)
+const overallSuggestion = ref({
+  summary: '',
+  suggestions: ""
+})
+const gradeTrendData = ref([])
 // 搜索表单
 const searchModel = ref({
-  course: 'all',
-  status: 'all',
+  courseId: '',
+  status: '',
   keyword: '',
 })
 // 选项数据
 const courseOptions = ref([])
-const statusOptions = ref([])
+const statusOptions = ref([{ id: 'ONGOING', label: '进行中' }, { id: 'COMPLETED', label: '已完成' }, { id: 'DROPPED', label: '已放弃' }])
 // 统计数据
 const statsData = ref({
-  pending: 0,
-  graded: 0,
+  completedCount: 0,
+  totalCount: 0,
   avgScore: 0,
   onTimeRate: 0
 })
@@ -37,12 +44,12 @@ const pageInfo = ref({
 // 统计卡片配置
 const statBoxes = computed(() => [
   {
-    statNum: statsData.value.pending,
-    title: '待提交',
+    statNum: statsData.value.totalCount,
+    title: '作业总数',
   },
   {
-    statNum: statsData.value.graded,
-    title: '已批改',
+    statNum: statsData.value.completedCount,
+    title: '已完成',
   },
   {
     statNum: statsData.value.avgScore,
@@ -57,10 +64,9 @@ const statBoxes = computed(() => [
 // 获取状态样式
 const getStatusType = (status) => {
   const typeMap = {
-    'pending': 'warning',
-    'submitted': 'info',
-    'graded': 'success',
-    'overdue': 'danger'
+    'ONGOING': 'warning',
+    'COMPLETED': 'success',
+    'DROPPED': 'info',
   }
   return typeMap[status] || 'info'
 }
@@ -68,41 +74,61 @@ const getStatusType = (status) => {
 // 获取状态文本
 const getStatusText = (status) => {
   const textMap = {
-    'pending': '待提交',
-    'submitted': '已提交',
-    'graded': '已批改',
-    'overdue': '已逾期'
+    'ONGOING': '进行中',
+    'COMPLETED': '已完成',
+    'DROPPED': '已放弃'
   }
   return textMap[status] || status
+}
+
+const loadUserInfo = async () => {
+  try {
+    const res = await authApi.getUserInfo()
+    if (res && res.data) {
+      userInfo.value = res.data?.user
+    }
+  } catch (error) {
+    console.error('加载用户信息失败:', error)
+  }
+}
+
+const loadOverallSuggestion = async () => {
+  try {
+    const res = await homeworkApi.getOverallSuggestion(userInfo.value.id)
+    if (res && res.data) {
+      overallSuggestion.value = res.data
+    }
+  } catch (error) {
+    console.error('加载整体建议失败:', error)
+  }
+}
+
+const loadGradeTrend = async () => {
+  try {
+    const res = await homeworkApi.getHomeworkTrend(userInfo.value.id, searchModel.value.courseId)
+    if (res && res.data) {
+      gradeTrendData.value = res.data
+    }
+  } catch (error) {
+    console.error('加载成绩趋势数据失败:', error)
+  }
 }
 
 // 加载课程选项
 const loadCourseOptions = async () => {
   try {
-    const res = await homeworkApi.getCourseOptions(authStore.userId)
+    const res = await homeworkApi.getCourseOptionsByStudentId(userInfo.value?.id || "1")
     if (res && res.data) {
-      courseOptions.value = res.data
+      courseOptions.value = res.data?.map((item) => item.course) || []
     }
   } catch (error) {
     console.error('加载课程选项失败:', error)
   }
 }
-
-// 加载状态选项
-const loadStatusOptions = async () => {
-  try {
-    const res = await homeworkApi.getStatusOptions()
-    if (res && res.data) {
-      statusOptions.value = res.data
-    }
-  } catch (error) {
-    console.error('加载状态选项失败:', error)
-  }
-}
 // 加载统计数据
 const loadStats = async () => {
   try {
-    const res = await homeworkApi.getStats(authStore.userId)
+    const res = await homeworkApi.getStats(userInfo.value.id)
     if (res && res.data) {
       statsData.value = res.data
     }
@@ -114,16 +140,12 @@ const loadStats = async () => {
 const loadHomeworkList = async () => {
   loading.value = true
   try {
-    const res = await homeworkApi.getHomeworkList(authStore.userId, {
-      course: searchModel.value.course,
+    const res = await homeworkApi.getHomeworkList(userInfo.value.id, {
+      courseId: searchModel.value.courseId,
       status: searchModel.value.status,
-      keyword: searchModel.value.keyword,
-      page: pageInfo.value.page,
-      pageSize: pageInfo.value.pageSize
     })
     if (res && res.data) {
-      homeworkList.value = res.data.list || []
-      pageInfo.value.total = res.data.total
+      homeworkList.value = res.data || []
     }
   } catch (error) {
     console.error('加载作业列表失败:', error)
@@ -133,98 +155,162 @@ const loadHomeworkList = async () => {
   }
 }
 
-// 提交作业
-const handleSubmitHomework = async (row) => {
+const LoadWorkDetail = async (homeworkId) => {
+  loading.value = true
   try {
-    await ElMessageBox.confirm(`确定要提交作业"${row.assignmentName}"吗？`, '提示', {
-      confirmButtonText: '确定',
-      cancelButtonText: '取消',
-      type: 'info'
-    })
 
-    // 模拟文件上传
-    const res = await homeworkApi.submitHomework({
-      homeworkId: row.id,
-      studentId: authStore.userId,
-      content: '作业内容...',
-      files: []
-    })
-
-    if (res && res.code === 200) {
-      ElMessage.success('作业提交成功')
-      loadHomeworkList()
-      loadStats()
-    }
-  } catch (error) {
-    if (error !== 'cancel') {
-      console.error('提交作业失败:', error)
-      ElMessage.error('提交失败')
-    }
-  }
-}
-
-// 查看作业详情
-const handleViewDetail = (row) => {
-  ElMessage.info(`查看作业详情：${row.assignmentName}`)
-  // 可以打开详情弹窗或跳转页面
-}
-
-// 查看作业解析
-const handleViewAnalysis = async (row) => {
-  try {
-    const res = await homeworkApi.getHomeworkAnalysis(row.id)
+    const res = await homeworkApi.getHomeworkDetail(userInfo.value.id, homeworkId)
     if (res && res.data) {
-      ElMessageBox.alert(res.data.analysis, `${row.assignmentName} - 作业解析`, {
-        confirmButtonText: '知道了',
-        dangerouslyUseHTMLString: true
-      })
+      currentHomework.value = res.data
+      console.log('作业详情数据:', currentHomework.value)
     }
   } catch (error) {
-    console.error('获取作业解析失败:', error)
-    ElMessage.error('获取解析失败')
+    console.error('加载作业详情失败:', error)
+    ElMessage.error('加载作业详情失败')
+  } finally {
+    loading.value = false
   }
 }
 
-// 获取操作按钮
-const getActionButtons = (row) => {
-  const buttons = []
+// 学习成绩趋势折线图数据
+const lineOption = computed(() => {
 
-  if (row.status === 'pending') {
-    buttons.push({ label: '提交作业', type: 'primary', handler: () => handleSubmitHomework(row) })
+  const classAvg = gradeTrendData.value.classAvg;
+  const name = gradeTrendData.value.homeworkNames;
+  const myScores = gradeTrendData.value.myScores
+  return {
+    title: {
+      text: '作业成绩趋势',
+      left: 'center'
+    },
+    tooltip: {
+      trigger: 'axis'
+    },
+    legend: {
+      data: ['我的成绩', '班级平均分'],
+      left: 'left'
+    },
+    grid: {
+      left: '3%',
+      right: '4%',
+      bottom: '3%',
+      containLabel: true
+    },
+    xAxis: {
+      type: 'category',
+      data: name,
+      boundaryGap: false
+    },
+    yAxis: {
+      type: 'value',
+      max: 100,
+      name: '分数'
+    },
+    series: [
+      {
+        name: '我的成绩',
+        data: myScores,
+        type: 'line',
+        smooth: true,
+        symbol: 'circle',
+        symbolSize: 8,
+        lineStyle: {
+          color: '#409EFF',
+          width: 3
+        },
+        areaStyle: {
+          color: 'rgba(64, 158, 255, 0.1)'
+        },
+        markPoint: {
+          data: [
+            { type: 'max', name: '最高分' },
+            { type: 'min', name: '最低分' }
+          ]
+        },
+        markLine: {
+          data: [{ type: 'average', name: '平均值' }]
+        }
+      },
+      {
+        name: '班级平均分',
+        data: classAvg,
+        type: 'line',
+        smooth: true,
+        symbol: 'diamond',
+        symbolSize: 8,
+        lineStyle: {
+          color: '#67C23A',
+          width: 2,
+          type: 'dashed'
+        }
+      }
+    ]
   }
+})
 
-  if (row.status === 'submitted') {
-    buttons.push({ label: '查看详情', type: 'info', handler: () => handleViewDetail(row) })
+const radarOption = computed(() => {
+  const indicators = currentHomework.value?.knowledgePointAnalysis.map(item => ({ name: item?.knowledgePointName, max: item?.fullScore || 10 }));
+  const currentData = currentHomework.value?.knowledgePointAnalysis.map(item => item?.myScore || 0);
+  return {
+    title: {
+      text: '知识点掌握程度',
+      left: 'center'
+    },
+    tooltip: {
+      trigger: 'item'
+    },
+    legend: {
+      data: ['当前掌握程度'],
+      left: 'left'
+    },
+    radar: {
+      indicator: indicators,
+      shape: 'circle',
+      center: ['50%', '50%'],
+      radius: '65%',
+      name: {
+        textStyle: {
+          fontSize: 12
+        }
+      }
+    },
+    series: [
+      {
+        name: '知识点掌握情况',
+        type: 'radar',
+        data: [
+          {
+            value: currentData,
+            name: '当前掌握程度',
+            areaStyle: {
+              color: 'rgba(64, 158, 255, 0.3)'
+            },
+            lineStyle: {
+              color: '#409EFF',
+              width: 2
+            },
+            itemStyle: {
+              color: '#409EFF'
+            }
+          }
+        ]
+      }
+    ]
   }
-
-  if (row.status === 'graded') {
-    buttons.push({ label: '查看解析', type: 'success', handler: () => handleViewAnalysis(row) })
-    buttons.push({ label: '查看详情', type: 'info', handler: () => handleViewDetail(row) })
-  }
-
-  if (row.status === 'overdue') {
-    buttons.push({ label: '补交作业', type: 'warning', handler: () => handleSubmitHomework(row) })
-  }
-
-  return buttons
+})
+// 查看作业详情
+const handleViewDetail = async (row) => {
+  await LoadWorkDetail(row.id)
+  detailDrawerVisible.value = true
 }
 
 // 搜索
 const handleSearch = () => {
   pageInfo.value.page = 1
   loadHomeworkList()
+  loadGradeTrend()
 }
 
-// 重置搜索
-const handleReset = () => {
-  searchModel.value = {
-    course: 'all',
-    status: 'all',
-    keyword: '',
-  }
-  pageInfo.value.page = 1
-  loadHomeworkList()
-}
 const handleExportImage = () => {
   exportToImage(containerRef.value, '作业跟踪')
 }
@@ -243,12 +329,12 @@ watch(() => pageInfo.value.pageSize, () => {
 
 // 初始化
 onMounted(async () => {
-  await Promise.all([
-    loadCourseOptions(),
-    loadStatusOptions(),
-    loadStats()
-  ])
+  await loadUserInfo()
+  await loadCourseOptions()
+  await loadStats()
   await loadHomeworkList()
+  await loadOverallSuggestion()
+  await loadGradeTrend()
 })
 </script>
 
@@ -256,37 +342,26 @@ onMounted(async () => {
   <div class="homework-tracking" ref="containerRef" v-loading="loading">
     <div class="container-header">
       <el-form inline label-width="80" :model="searchModel" class="select-box">
-        <el-form-item label="状态" prop="status">
+        <!-- <el-form-item label="状态" prop="status">
           <el-select size="large" placeholder="选择状态" style="width: 180px" v-model="searchModel.status" clearable
             @change="handleSearch">
-            <el-option v-for="item in statusOptions" :key="item.value" :label="item.label" :value="item.value" />
+            <el-option v-for="item in statusOptions" :key="item.id" :label="item.label" :value="item.id" />
           </el-select>
-        </el-form-item>
-        <el-form-item label="课程" prop="course">
-          <el-select size="large" placeholder="选择课程" style="width: 180px" v-model="searchModel.course" clearable
+        </el-form-item> -->
+        <el-form-item label="课程" prop="courseId">
+          <el-select size="large" placeholder="选择课程" style="width: 180px" v-model="searchModel.courseId" clearable
             @change="handleSearch">
-            <el-option v-for="item in courseOptions" :key="item.value" :label="item.label" :value="item.value" />
+            <el-option v-for="item in courseOptions" :key="item.id" :label="item.name" :value="item.id" />
           </el-select>
-        </el-form-item>
-        <el-form-item label="作业名称" prop="keyword">
-          <el-input placeholder="搜索作业..." style="width: 240px" v-model="searchModel.keyword" />
         </el-form-item>
       </el-form>
-      <div class="export-btns">
+      <!-- <div class="export-btns">
         <el-button size="large" type="success" @click="handleSearch" style="margin-right: 10px;">搜索
           <template #icon>
             <i class="fas fa-sync-alt"></i>
           </template>
-        </el-button>
-        <el-button-group>
-          <el-button size="large" type="primary" :icon="Picture" @click="handleExportImage">导出图片</el-button>
-          <el-button size="large" @click="handleExportPDF">导出PDF
-            <template #icon>
-              <i class="fas fa-file-pdf"></i>
-            </template>
-          </el-button>
-        </el-button-group>
-      </div>
+</el-button>
+</div> -->
     </div>
     <!-- 统计卡片 -->
     <div class="section-content">
@@ -296,60 +371,80 @@ onMounted(async () => {
         </el-col>
       </el-row>
     </div>
+
+    <el-row :gutter="20" style="margin-top: 20px;">
+      <el-col :span="24">
+        <el-card shadow="hover">
+          <EChart :options="lineOption" height="400px" />
+        </el-card>
+      </el-col>
+    </el-row>
+
+
+    <el-row :gutter="20" style="margin-top: 20px;">
+      <el-col :span="24">
+        <el-card shadow="hover" header="🤖 AI 学习建议">
+          <div class="ai-suggestions">
+            <div class="ai-content" v-if="overallSuggestion?.summary">
+              <h4>总结:<p>{{ overallSuggestion.summary }}</p>
+              </h4>
+              <h4>建议:<p style="white-space: pre-wrap;">{{ overallSuggestion.suggestions }}</p>
+              </h4>
+            </div>
+            <div class="ai-content" v-else>
+              {{ '暂无AI建议，请先完成更多学习活动' }}
+            </div>
+          </div>
+        </el-card>
+      </el-col>
+    </el-row>
+
     <el-card shadow="always" class="section-content">
       <template #header>
         <span>作业列表</span>
       </template>
       <!-- 表格区域 -->
       <el-table v-loading="loading" :data="homeworkList" max-height="500px" class="content-box" stripe>
-        <el-table-column label="作业名称" min-width="180">
+        <el-table-column label="作业名称">
           <template #default="{ row }">
             <div class="homework-name">
-              <span class="name">{{ row.assignmentName }}</span>
-              <el-tag v-if="row.difficulty" size="small"
-                :type="row.difficulty === '困难' ? 'danger' : row.difficulty === '中等' ? 'warning' : 'success'">
-                {{ row.difficulty }}
-              </el-tag>
+              <span class="name">{{ row.name }}</span>
             </div>
           </template>
         </el-table-column>
-        <el-table-column label="课程" width="140">
+        <el-table-column label="课程">
           <template #default="{ row }">
-            <span>{{ row.course }}</span>
+            <span>{{ row.courseName }}</span>
           </template>
         </el-table-column>
-        <el-table-column prop="targetSystem" label="截止日期" width="160">
+        <el-table-column label="题目数量">
           <template #default="{ row }">
-            <span :class="{ 'overdue-text': row.status === 'overdue' }">
-              {{ row.deadline?.split(' ')[0] || '未知' }}
-            </span>
+            <span>{{ row.questionCount }}</span>
           </template>
         </el-table-column>
-        <el-table-column prop="template" width="100">
+        <el-table-column label="总分">
+          <template #default="{ row }">
+            <span>{{ row.totalScore }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="状态">
           <template #default="{ row }">
             <el-tag :type="getStatusType(row.status)" size="small">
               {{ getStatusText(row.status) }}
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column prop="score" label="得分" width="100">
+        <el-table-column prop="myScore" label="得分">
           <template #default="{ row }">
-            <span v-if="row.score" class="score-text">{{ row.score }}分</span>
+            <span v-if="row.myScore" class="score-text">{{ row.myScore }}分</span>
             <span v-else class="no-score">未评分</span>
           </template>
         </el-table-column>
-        <el-table-column label="提交时间" width="160">
-          <template #default="{ row }">
-            <span v-if="row.submitTime">{{ row.submitTime?.split(' ')[0] }}</span>
-            <span v-else class="no-submit">未提交</span>
-          </template>
-        </el-table-column>
-        <el-table-column label="操作" width="180" fixed="right">
+        <el-table-column label="操作" fixed="right">
           <template #default="{ row }">
             <div class="action-buttons">
-              <el-button v-for="btn in getActionButtons(row)" :key="btn.label" :type="btn.type" size="small" link
-                @click="btn.handler">
-                {{ btn.label }}
+              <el-button @click="handleViewDetail(row)">
+                查看作业详情
               </el-button>
             </div>
           </template>
@@ -366,6 +461,75 @@ onMounted(async () => {
           @size-change="() => $emit('update:pageInfo', { page: pageInfo.page, pageSize: $event })"></el-pagination>
       </template>
     </el-card>
+    <!-- 作业详情弹窗 -->
+    <el-drawer v-model="detailDrawerVisible" title="作业详情" direction="rtl" size="800px">
+      <div class="work-detail" v-if="currentHomework">
+        <el-descriptions :column="1" border>
+          <el-descriptions-item label="课程名称">
+            {{ currentHomework.courseName }}
+          </el-descriptions-item>
+          <el-descriptions-item label="作业名称">
+            {{ currentHomework.name }}
+          </el-descriptions-item>
+          <el-descriptions-item label="描述">
+            {{ currentHomework.description || '-' }}
+          </el-descriptions-item>
+          <el-descriptions-item label="得分情况"
+            v-if="currentHomework.scoreAnalysis.score && currentHomework.scoreAnalysis.score !== -1">
+            <div class="score-detail">
+              <div class="detail-text">
+                <h4>我的得分：{{ currentHomework.scoreAnalysis.score }}</h4>
+                <h4>班级平均分：{{ currentHomework.scoreAnalysis.classAvg }}</h4>
+                <h4>相差：{{ currentHomework.scoreAnalysis.diffFromAvg }}</h4>
+                <h4>总分：{{ currentHomework.totalScore }}</h4>
+              </div>
+              <div class="echart-desc">
+                <div style="font-size: 3rem; font-weight: 700; color: #1d4e7c">
+                  {{ currentHomework.scoreAnalysis.rank }}
+                </div>
+                <div style="font-size: 1.1rem; margin-top: 10px">
+                  超过全班 <strong>{{ Math.round((1 - currentHomework.scoreAnalysis.rank / 45) * 100) }}%</strong> 的同学
+                </div>
+              </div>
+            </div>
+          </el-descriptions-item>
+        </el-descriptions>
+        <el-row :gutter="20" style="margin-top: 20px;">
+          <el-col :span="24">
+            <el-card shadow="hover" header="🤖 AI 学习建议">
+              <div class="ai-suggestions">
+                <div class="ai-content" v-if="currentHomework.aiSuggestion">
+                  <h4>总结:<p>{{ currentHomework.aiSuggestion.summary }}</p>
+                  </h4>
+                  <h4>优势<p v-for="(strength, index) in currentHomework.aiSuggestion.strengths" :key="index">
+                      {{ index + 1 }}.{{ strength }}
+                    </p>
+                  </h4>
+                  <h4>弱点<p v-for="(weakness, index) in currentHomework.aiSuggestion.weaknesses" :key="index">
+                      {{ index + 1 }}.{{ weakness }}
+                    </p>
+                  </h4>
+                  <h4>建议<p v-for="(actionItem, index) in currentHomework.aiSuggestion.actionItems" :key="index">
+                      {{ currentHomework.aiSuggestion.actionItems?.length > 1 ? index + 1 + "." : "" }}{{ actionItem }}
+                    </p>
+                  </h4>
+                </div>
+                <div class="ai-content" v-else>
+                  {{ '暂无AI建议，请先完成更多学习活动' }}
+                </div>
+              </div>
+            </el-card>
+          </el-col>
+        </el-row>
+        <el-row style="margin-top: 20px;" v-if="currentHomework.knowledgePointAnalysis.length > 0">
+          <el-col :span="24">
+            <el-card shadow="always">
+              <EChart :options="radarOption" height="400px" />
+            </el-card>
+          </el-col>
+        </el-row>
+      </div>
+    </el-drawer>
   </div>
 </template>
 
@@ -388,7 +552,8 @@ onMounted(async () => {
         margin-bottom: 0;
       }
     }
-     .export-btns {
+
+    .export-btns {
       display: flex;
       gap: 10px;
     }
@@ -398,7 +563,7 @@ onMounted(async () => {
     margin-top: 20px;
   }
 
-   .homework-name {
+  .homework-name {
     display: flex;
     align-items: center;
     gap: 8px;
@@ -409,7 +574,7 @@ onMounted(async () => {
     }
   }
 
-   .overdue-text {
+  .overdue-text {
     color: #f56c6c;
   }
 
@@ -435,10 +600,38 @@ onMounted(async () => {
     justify-content: flex-end;
   }
 
-  .header-tip {
-    margin-left: 12px;
-    font-size: 12px;
-    color: #909399;
+  .score-detail {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+
+    .echart-desc {
+      text-align: center;
+    }
+
+    .ai-suggestions {
+      .ai-content {
+        white-space: pre-wrap;
+        padding: 16px;
+        background-color: #f5f7fa;
+        border-radius: 8px;
+        line-height: 1.6;
+        color: #606266;
+
+        h4 {
+          display: flex;
+          align-items: center;
+          font-size: 1.3rem;
+
+          p {
+            margin-left: 22px;
+            font-size: 1rem;
+            font-weight: 400;
+          }
+        }
+      }
+    }
   }
 }
 

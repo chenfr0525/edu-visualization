@@ -12,17 +12,18 @@ export function setupPermission() {
 
     const authStore = useAuthStore()
     const menuStore = useMenuStore()
-
     //判断是否登录
     const isLogin = authStore.token && authStore.userRole
-
+    console.log('用户登录状态:', isLogin)
     if (isLogin) {
       if (to.path === '/login') {
         authStore.logout()
         return '/login'
       } else {
+        console.log('用户已登录，角色:', authStore.userRole)
         // 判断路由是否加载完成
         if (menuStore.isRoutesLoaded) {
+          console.log('路由已加载完成1')
           if (to.matched.length === 0) {
             // 路由未匹配，跳转到404
             return '/404'
@@ -32,6 +33,7 @@ export function setupPermission() {
         } else {
           // 动态路由加载
           try {
+            console.log('开始动态加载路由2...')
             const success = await setupDynamicRoutes(router)
             return success ? { ...to, replace: true } : '/login'
           } catch (error) {

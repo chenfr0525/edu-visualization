@@ -243,7 +243,7 @@ export default function mockAuth() {
     //   return error('用户不存在', 404)
     // }
 
-    const menus = menuConfig['student'] || []
+    const menus = menuConfig['teacher'] || []
     return success(menus)
   })
 }

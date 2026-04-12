@@ -8,22 +8,21 @@ export const useAuthStore = defineStore(
   () => {
     const token = ref('')
     const user = ref(null)
+    const userRole = ref('')
 
     const isAuthenticated = computed(() => !!token.value)
-    const userRole = computed(() => user.value?.role || '')
     const userName = computed(() => user.value?.name || '')
     const userId = computed(() => user.value?.id || null)
-
     // 登录
     async function login(data) {
       try {
         const res = await authApi.login(data)
-        const { token: newToken, userInfo } = res.data
-
+        const { token: newToken, user } = res.data
         token.value = newToken
-        user.value = userInfo
-
-        return userInfo
+        user.value = user
+        console.log(res.data, 'user', user.value)
+        userRole.value = user?.role || ''
+        return user
       } catch (error) {
         console.error('登录失败:', error)
         throw error
@@ -64,7 +63,6 @@ export const useAuthStore = defineStore(
   {
     persist: {
       key: 'edu_auth', // 存储的 key 名称
-      paths: ['token', 'user'], // 需要持久化的字段
     },
   },
 )

@@ -74,10 +74,11 @@ export function transformRoutes(backendRoutes, basePath = '') {
 //动态路由添加函数
 export async function setupDynamicRoutes(router) {
   const menuStore = useMenuStore()
+  const authStore = useAuthStore()
 
   try {
     // 生成动态路由
-    await menuStore.generateRoutes()
+    await menuStore.generateRoutes(authStore.userRole)
     // 清除可能存在的旧路由
     // const reservedRoutes = ['login', '404']
 

@@ -15,10 +15,10 @@ export const useMenuStore = defineStore('menu', () => {
   const isRoutesLoaded = ref(false)
 
   //生成动态路由
-  const generateRoutes = async () => {
+  const generateRoutes = async (role) => {
     try {
       // 从API获取菜单数据
-      const res = await authApi.getMenus()
+      const res = await authApi.getMenus(role)
       rawRoutes.value = res.data
       // 转换路由格式
       dynamicRoutes.value = transformRoutes(rawRoutes.value)

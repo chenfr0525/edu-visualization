@@ -36,7 +36,8 @@ const handleLogin = async () => {
     ElMessage.success('登录成功')
     router.push('/')
   } catch (error) {
-    console.log( '登录失败',error)
+    ElMessage.error(error.response?.data?.message || '登录失败')
+    console.log('登录失败', error)
   } finally {
     loading.value = false
   }
@@ -66,7 +67,7 @@ const handleRegister = async () => {
     ElMessage.success('注册成功')
     activeName.value = 'login' // 切换到登录页
   } catch (error) {
-    console.log( '注册失败',error)
+    console.log('注册失败', error)
   } finally {
     loading.value = false
   }

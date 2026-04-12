@@ -20,9 +20,19 @@ export const authApi = {
   },
 
   // 获取用户菜单
-  getMenus() {
+  getMenus(role) {
     return request({
       url: '/menu/list',
+      params: {
+        role,
+      },
+      method: 'get',
+    })
+  },
+
+  getUserInfo() {
+    return request({
+      url: '/user/info',
       method: 'get',
     })
   },
