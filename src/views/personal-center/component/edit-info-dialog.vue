@@ -25,6 +25,7 @@ const submitting = ref(false)
 
 const formData = ref({
   name: '',
+  username: '',
   email: '',
   phone: '',
   gender: '',
@@ -35,6 +36,7 @@ const formData = ref({
 
 const rules = {
   name: [{ required: true, message: '请输入姓名', trigger: 'blur' }],
+  username: [{ required: true, message: '请输入用户名', trigger: 'blur' }],
   email: [
     { required: true, message: '请输入邮箱', trigger: 'blur' },
     { type: 'email', message: '请输入正确的邮箱格式', trigger: 'blur' }
@@ -53,9 +55,7 @@ watch(() => props.visible, (val) => {
       email: props.userInfo.email || '',
       phone: props.userInfo.phone || '',
       gender: props.userInfo.gender || '男',
-      birthday: props.userInfo.birthday || '',
-      address: props.userInfo.address || '',
-      office: props.userInfo.office || ''
+      username: props.userInfo.username || '',
     }
   }
 })
@@ -78,16 +78,13 @@ const handleSubmit = async () => {
 </script>
 
 <template>
-  <el-dialog
-    v-model="dialogVisible"
-    title="编辑个人信息"
-    width="500px"
-    :close-on-click-modal="false"
-    @close="handleClose"
-  >
+  <el-dialog v-model="dialogVisible" title="编辑个人信息" width="500px" :close-on-click-modal="false" @close="handleClose">
     <el-form :model="formData" :rules="rules" ref="formRef" label-width="100px">
       <el-form-item label="姓名" prop="name">
         <el-input v-model="formData.name" placeholder="请输入姓名" />
+      </el-form-item>
+      <el-form-item label="用户名" prop="username">
+        <el-input v-model="formData.username" placeholder="请输入姓名" />
       </el-form-item>
       <el-form-item label="邮箱" prop="email">
         <el-input v-model="formData.email" placeholder="请输入邮箱" />
@@ -101,27 +98,11 @@ const handleSubmit = async () => {
           <el-radio value="女">女</el-radio>
         </el-radio-group>
       </el-form-item>
-      <el-form-item label="生日" prop="birthday">
-        <el-date-picker
-          v-model="formData.birthday"
-          type="date"
-          placeholder="选择日期"
-          format="YYYY-MM-DD"
-          value-format="YYYY-MM-DD"
-        />
-      </el-form-item>
-      <el-form-item label="地址" prop="address" v-if="userRole === 'student'">
-        <el-input v-model="formData.address" placeholder="请输入地址" />
-      </el-form-item>
-      <el-form-item label="办公室" prop="office" v-if="userRole === 'teacher'">
-        <el-input v-model="formData.office" placeholder="请输入办公室" />
-      </el-form-item>
     </el-form>
-    
+
     <template #footer>
       <el-button @click="handleClose">取消</el-button>
       <el-button type="primary" @click="handleSubmit" :loading="submitting">确定</el-button>
     </template>
   </el-dialog>
 </template>
-

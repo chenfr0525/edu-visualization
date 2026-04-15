@@ -1,6 +1,14 @@
 import request from '@/utils/request'
 
 export const dashboardApi = {
+  // 获取dasborad AI
+  getAISuggestions(studentId) {
+    return request({
+      url: `/dashboard/student/refresh/${studentId}`,
+      method: 'post',
+    })
+  },
+
   // 获取学生信息
   getStudentInfo(studentId) {
     return request({
@@ -136,46 +144,51 @@ export const knowledgeApi = {
     })
   },
 
+  getOverallSuggestion(studentId, courseId) {
+    return request({
+      url: `/analysis/student/knowledge/ai-analysis/${studentId}`,
+      method: 'get',
+      params: { courseId },
+    })
+  },
+
   // 获取知识点树形数据
   getKnowledgeTree(studentId, courseId) {
     return request({
-      url: '/knowledge/tree',
+      url: `/analysis/student/knowledge/tree/${studentId}`,
       method: 'get',
-      params: { studentId, courseId },
+      params: { courseId },
+    })
+  },
+
+  getStats(studentId) {
+    return request({
+      url: `/analysis/student/knowledge/statistics/${studentId}`,
+      method: 'get',
     })
   },
 
   // 获取知识点掌握环图数据
   getDonutData(studentId, courseId) {
     return request({
-      url: '/knowledge/donut',
+      url: `/analysis/student/knowledge/progress/${studentId}`,
       method: 'get',
-      params: { studentId, courseId },
+      // params: { courseId },
     })
   },
 
   // 获取雷达图数据
   getRadarData(studentId, courseId) {
     return request({
-      url: '/knowledge/radar',
+      url: `/analysis/student/knowledge/radar/${studentId}`,
       method: 'get',
-      params: { studentId, courseId },
+      params: { courseId },
     })
   },
-
-  // 获取个性化学习资源推荐
-  getRecommendations(studentId, courseId) {
+  getKnowledgeDetail(studentId, knowledgeId) {
     return request({
-      url: '/knowledge/recommendations',
+      url: `/analysis/student/knowledge/detail/${studentId}/${knowledgeId}`,
       method: 'get',
-      params: { studentId, courseId },
-    })
-  },
-  getKnowledgeDetail(studentId, knowledgeId, courseId) {
-    return request({
-      url: '/knowledge/detail',
-      method: 'get',
-      params: { studentId, knowledgeId, courseId },
     })
   },
 }

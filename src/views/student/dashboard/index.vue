@@ -4,19 +4,29 @@ import EChart from '@/components/EChart.vue'
 import { exportToImage, exportToPDF } from '@/utils/export'
 import { Picture } from '@element-plus/icons-vue'
 import StatBox from './component/stat-box.vue'
-import { dashboardApi } from '@/api/index.js'
-import { useAuthStore } from '@/stores/index.js'
+import { authApi, dashboardApi } from '@/api/index.js'
 import { ElMessage } from 'element-plus'
 
 const dashboardRef = ref(null)
-const authStore = useAuthStore()
 const loading = ref(false)
 const dashboardData = ref(null)
+const userInfo = ref(null)
+
+const loadUserInfo = async () => {
+  try {
+    const res = await authApi.getUserInfo()
+    if (res && res.data) {
+      userInfo.value = res.data?.user
+    }
+  } catch (error) {
+    console.error('加载用户信息失败:', error)
+  }
+}
 
 // 数据状态
 const statsData = computed(() => {
   return {
-    homeworkCompletionRate: dashboardData.value?.homeworkCompletionRate || 0,
+    activityScore: dashboardData.value?.activityScore || 0,
     homeworkAvgScore: dashboardData.value?.homeworkAvgScore || 0,
     avgScore: dashboardData.value?.avgScore || 0,
     latestRank: dashboardData.value?.latestRank || 0
@@ -39,21 +49,23 @@ const searchModel = ref({
 })
 
 // 加载学期列表
-const loadSemesterOptions = async () => {
-  try {
-    const res = await dashboardApi.getSemesterList(authStore.userId)
-    semesterOptions.value = res.data
-  } catch (error) {
-    console.error('加载学期列表失败:', error)
-    ElMessage.error('加载学期列表失败')
-  }
+// const loadSemesterOptions = async () => {
+//   try {
+//     const res = await dashboardApi.getSemesterList(userInfo.value.id)
+//     semesterOptions.value = res.data
+//   } catch (error) {
+//     console.error('加载学期列表失败:', error)
+//     ElMessage.error('加载学期列表失败')
+//   }
+// }
+
+const refreshAiSuggestions = async () => {
+  await dashboardApi.getAISuggestions(userInfo.value.id)
 }
 
 const loadData = async () => {
   try {
-    console.log('正在加载Dashboard数据...', authStore.user)
-    const res = await dashboardApi.getStudentDashbord(authStore?.userId || '1')
-    console.log('Dashboard数据:', res.data)
+    const res = await dashboardApi.getStudentDashbord(userInfo.value.id)
     dashboardData.value = res.data
   } catch (error) {
     console.error('数据加载失败:', error)
@@ -360,14 +372,16 @@ const handleExportPDF = () => {
   exportToPDF(dashboardRef.value, '学生个人学习驾驶舱')
 }
 
-const handleSearch = () => {
+const handleSearch = async () => {
   refreshData()
+  await refreshAiSuggestions(userInfo.value.id)
 }
 
 onMounted(async () => {
   loading.value = true
   try {
     // 先加载学期选项
+    await loadUserInfo()
     await loadSemesterOptions()
     // 然后加载所有数据
     await refreshData()
@@ -383,13 +397,13 @@ onMounted(async () => {
 <template>
   <div class="dashboard-container" ref="dashboardRef" v-loading="loading">
     <div class="container-header">
-      <el-form inline label-width="80" :model="searchModel" class="select-box">
+      <!-- <el-form inline label-width="80" :model="searchModel" class="select-box">
         <el-form-item label="学期" prop="semester">
           <el-select size="large" v-model="searchModel.semester" placeholder="请选择学期" style="width: 240px">
             <el-option v-for="item in semesterOptions" :key="item.id" :label="item.name" :value="item.id" />
           </el-select>
         </el-form-item>
-      </el-form>
+      </el-form> -->
       <div class="export-btns">
         <el-button size="large" type="success" @click="handleSearch" style="margin-right: 10px;">
           刷新
@@ -411,7 +425,7 @@ onMounted(async () => {
 
     <el-row :gutter="20" style="margin-top: 20px;">
       <el-col :span="6">
-        <StatBox icon="fa-book-open" title="作业完成率" :rate="statsData.homeworkCompletionRate" />
+        <StatBox icon="fa-book-open" title="活动得分" :stat-num="statsData.activityScore" />
       </el-col>
       <el-col :span="6">
         <StatBox icon="fa-clock" title="作业平均分" :stat-num="statsData.homeworkAvgScore" />
@@ -424,11 +438,14 @@ onMounted(async () => {
       </el-col>
     </el-row>
 
-    <el-row :gutter="20" style="margin-top: 20px;">
+    <el-row :gutter="20" style="margin-top: 20px;" v-loading="loading">
       <el-col :span="24">
         <el-card shadow="hover" header="🤖 AI 学习建议">
           <div class="ai-suggestions">
             <div class="ai-content">{{ dashboardData?.aiSuggestions || '暂无AI建议，请先完成更多学习活动' }}</div>
+            <div class="ai-content" v-if="dashboardData?.aiSummary">
+              <h4>总结:</h4>{{ dashboardData?.aiSummary }}
+            </div>
           </div>
         </el-card>
       </el-col>

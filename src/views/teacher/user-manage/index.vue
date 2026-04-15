@@ -1,18 +1,157 @@
 <script setup>
-import { ref, reactive, onMounted, watch } from 'vue'
+import { ref, reactive, onMounted, watch, computed } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import * as echarts from 'echarts'
 import StatsCard from './component/stats-card.vue'
-import { userManageApi, tDashboardApi } from '@/api/index.js'
-import { useAuthStore } from '@/stores/index.js'
+import { userManageApi, tDashboardApi, dashboardApi, fileApi } from '@/api/index.js'
+import { tr } from 'element-plus/es/locale/index.mjs'
+import { exportMemberExcel } from '@/utils/export'
+import StatBox from '@/views/student/dashboard/component/stat-box.vue'
 
-const authStore = useAuthStore()
+//文件解析模块
+const beforeUpload = (file) => {
+  const isValidSize = file.size / 1024 / 1024 < 10
+  if (!isValidSize) {
+    ElMessage.error('文件大小不能超过 10MB')
+    return false
+  }
+  return true
+}
+
+// 文件变化处理
+const handleFileChange = (file, fileList) => {
+  selectedFile.value = file.raw
+  parseResult.value = null  // 清空之前的解析结果
+}
+
+// 上传文件并解析
+const uploadFile = async () => {
+  if (!selectedFile.value) {
+    ElMessage.warning('请先选择文件')
+    return
+  }
+
+  uploading.value = true
+  try {
+    const result = await fileApi.uploadFile(
+      selectedFile.value,
+      "学生信息",
+    )
+    console.log("文件上传成功", result.data)
+    parseResult.value = result.data
+
+    if (result.success) {
+      ElMessage.success(`解析成功！共 ${result.data?.length || 0} 条数据`)
+    } else {
+      ElMessage.error('解析失败，请检查文件格式')
+    }
+  } catch (error) {
+    console.log("解析失败", error)
+    console.error('上传失败', error)
+    ElMessage.error(error.message || '上传失败，请稍后重试')
+  } finally {
+    uploading.value = false
+  }
+}
+
+// 确认插入数据库
+const confirmInsert = async () => {
+  if (!parseResult.value || !parseResult.value.sessionId) {
+    ElMessage.error('数据无效，请重新上传')
+    return
+  }
+
+  try {
+    await ElMessageBox.confirm('确认要将这些数据插入数据库吗？', '确认操作', {
+      confirmButtonText: '确认',
+      cancelButtonText: '取消',
+      type: 'warning'
+    })
+
+    confirming.value = true
+
+    // 确认插入
+    await fileApi.confirmInsert(
+      parseResult.value.sessionId,
+      parseResult.value.data,
+      true
+    )
+
+    ElMessage.success('数据已成功插入数据库')
+    parseResult.value = null
+    selectedFile.value = null
+    uploadRef.value?.clearFiles()
+
+  } catch (error) {
+    if (error !== 'cancel') {
+      console.error('插入失败', error)
+      ElMessage.error(error.message || '插入失败')
+    }
+  } finally {
+    confirming.value = false
+  }
+}
+
+// 取消插入
+const cancelInsert = async () => {
+  if (!parseResult.value || !parseResult.value.sessionId) return
+
+  try {
+    await ElMessageBox.confirm('确认要取消并删除这些数据吗？', '确认操作', {
+      confirmButtonText: '确认',
+      cancelButtonText: '取消',
+      type: 'warning'
+    })
+
+    await fileApi.cancelInsert(parseResult.value.sessionId)
+    ElMessage.success('已取消，临时数据已清理')
+    parseResult.value = null
+    selectedFile.value = null
+    uploadRef.value?.clearFiles()
+
+  } catch (error) {
+    if (error !== 'cancel') {
+      console.error('取消失败', error)
+    }
+  }
+}
+
+// 清空文件
+const clearFile = () => {
+  selectedFile.value = null
+  parseResult.value = null
+  uploadRef.value?.clearFiles()
+}
+
+const onImportSuccess = async (response) => {
+  if (response.code === 200) {
+    ElMessage.success(`导入成功，共导入 ${response.data?.count || 0} 名学生`)
+    importDialogVisible.value = false
+    await fetchStudentList()
+    await fetchStatistics()
+  } else {
+    ElMessage.error(response.message || '导入失败')
+  }
+}
+
+const onImportError = () => {
+  ElMessage.error('导入失败，请检查文件格式或网络')
+}
+
+// 响应式数据
+const uploadRef = ref(null)
+const selectedFile = ref(null)
+const uploading = ref(false)
+const confirming = ref(false)
+const parseResult = ref(null)
+
+
+
 const loading = ref(false)
-const selectedRows = ref([])
-
+const currentStudentDashboardData = ref({})
 const searchModel = ref({
   classId: '',
-  status: '',
+  courseId: '',
   keyword: ""
 })
 
@@ -24,13 +163,12 @@ const pagination = reactive({
 
 const studentList = ref([])
 const classList = ref([])
-
+const courseList = ref([])
 const statistics = reactive({
-  total: 0,
-  active: 0,
-  frozen: 0,
-  pending: 0,
-  todayActive: 0
+  totalStudentCount: 0,
+  avgActivityScore: 0,
+  lowActivityCount: 0,
+  avgExamScore: 0
 })
 
 // 弹窗控制
@@ -38,30 +176,24 @@ const dialogVisible = ref(false)
 const dialogTitle = ref('新增学生')
 const importDialogVisible = ref(false)
 const detailDrawerVisible = ref(false)
-const resetPwdDialogVisible = ref(false)
 
 // 表单数据
 const formRef = ref(null)
-const formData = reactive({
+const formData = ref({
   id: null,
   studentNo: '',
   name: '',
-  gender: 'M',
+  gender: '男',
   classId: '',
   email: '',
   phone: '',
   password: '',
-  status: 'active'
-})
-
-const resetPwdForm = reactive({
-  studentId: null,
-  password: '',
-  confirmPassword: ''
+  grade: '大一',
 })
 
 const currentStudent = ref(null)
 let studentActivityChart = null
+let studentRadarChart = null
 
 // 表单验证规则
 const formRules = {
@@ -89,7 +221,7 @@ const formRules = {
 
 const fetchClassList = async () => {
   try {
-    const res = await tDashboardApi.getClassList(authStore.userId)
+    const res = await tDashboardApi.getClassList()
     if (res && res.data) {
       classList.value = res.data
     }
@@ -98,15 +230,26 @@ const fetchClassList = async () => {
   }
 }
 
+const fetchCourseList = async () => {
+  try {
+    const res = await tDashboardApi.getCourseList()
+    if (res && res.data) {
+      courseList.value = res.data
+    }
+  } catch (error) {
+    console.error('获取课程列表失败:', error)
+  }
+}
+
 const fetchStudentList = async () => {
   loading.value = true
   try {
     const res = await userManageApi.getStudentList({
-      page: pagination.page,
-      pageSize: pagination.pageSize,
+      page: pagination.page - 1,
+      size: pagination.pageSize,
       keyword: searchModel.value.keyword,
       classId: searchModel.value.classId,
-      status: searchModel.value.status
+      courseId: searchModel.value.courseId
     })
     if (res && res.data) {
       studentList.value = res.data.list || []
@@ -123,7 +266,7 @@ const fetchStudentList = async () => {
 // 获取统计数据
 const fetchStatistics = async () => {
   try {
-    const res = await userManageApi.getStudentStatistics(searchModel.value.classId)
+    const res = await userManageApi.getStudentStatistics(searchModel.value.classId, searchModel.value.courseId)
     if (res && res.data) {
       Object.assign(statistics, res.data)
     }
@@ -132,6 +275,19 @@ const fetchStatistics = async () => {
   }
 }
 
+
+// 获取学生详情图表
+const fetchStudentDashboard = async (studentId) => {
+  try {
+    const res = await dashboardApi.getStudentDashbord(studentId)
+    if (res && res.data) {
+      currentStudentDashboardData.value = res.data
+      console.log('dashborad', currentStudentDashboardData.value)
+    }
+  } catch (error) {
+    console.error('获取统计数据失败:', error)
+  }
+}
 // 新增学生
 const addStudent = async (data) => {
   const res = await userManageApi.addStudent(data)
@@ -139,6 +295,7 @@ const addStudent = async (data) => {
     ElMessage.success('新增成功')
     return true
   }
+  ElMessage.error(res?.message || '新增失败')
   return false
 }
 
@@ -147,36 +304,6 @@ const updateStudent = async (data) => {
   const res = await userManageApi.updateStudent(data.id, data)
   if (res && res.code === 200) {
     ElMessage.success('更新成功')
-    return true
-  }
-  return false
-}
-
-// 删除学生
-const deleteStudent = async (id) => {
-  const res = await userManageApi.deleteStudent(id)
-  if (res && res.code === 200) {
-    ElMessage.success('删除成功')
-    return true
-  }
-  return false
-}
-
-// 批量操作
-const batchOperation = async (command, ids) => {
-  const res = await userManageApi.batchOperation({ command, ids })
-  if (res && res.code === 200) {
-    ElMessage.success(res.message || `批量${command}成功`)
-    return true
-  }
-  return false
-}
-
-// 重置密码
-const resetPassword = async (studentId, newPassword) => {
-  const res = await userManageApi.resetPassword(studentId, newPassword)
-  if (res && res.code === 200) {
-    ElMessage.success(res.message || '密码重置成功')
     return true
   }
   return false
@@ -204,28 +331,6 @@ const importStudents = async (file) => {
   return { success: false, count: 0 }
 }
 
-const getStatusType = (status) => {
-  const map = {
-    active: 'success',
-    frozen: 'danger',
-    pending: 'warning'
-  }
-  return map[status] || 'info'
-}
-
-const getStatusText = (status) => {
-  const map = {
-    active: '正常',
-    frozen: '冻结',
-    pending: '待激活'
-  }
-  return map[status] || status
-}
-
-const formatDateTime = (dateTime) => {
-  if (!dateTime) return '-'
-  return dateTime
-}
 
 const handleSearch = () => {
   pagination.page = 1
@@ -236,9 +341,6 @@ const handleFilterChange = () => {
   pagination.page = 1
   fetchStudentList()
   fetchStatistics()
-}
-const handleSelectionChange = (rows) => {
-  selectedRows.value = rows
 }
 
 const handleSizeChange = (size) => {
@@ -251,100 +353,25 @@ const handlePageChange = (page) => {
   fetchStudentList()
 }
 
-const handleBatchCommand = (command) => {
-  if (selectedRows.value.length === 0) {
-    ElMessage.warning('请先选择学生')
-    return
-  }
-  const ids = selectedRows.value.map(row => row.id)
-  const commands = {
-    activate: () => {
-      ElMessageBox.confirm(`确认激活选中的 ${ids.length} 名学生吗？`, '提示', {
-        confirmButtonText: '确定',
-        cancelButtonText: '取消',
-        type: 'info'
-      }).then(async () => {
-        await batchOperation('activate', ids)
-        await fetchStudentList()
-        await fetchStatistics()
-      })
-    },
-    freeze: () => {
-      ElMessageBox.confirm(`确认冻结选中的 ${ids.length} 名学生吗？`, '提示', {
-        confirmButtonText: '确定',
-        cancelButtonText: '取消',
-        type: 'warning'
-      }).then(async () => {
-        await batchOperation('freeze', ids)
-        await fetchStudentList()
-        await fetchStatistics()
-      })
-    },
-    resetPwd: () => {
-      ElMessageBox.prompt('请输入新密码', '批量重置密码', {
-        confirmButtonText: '确定',
-        cancelButtonText: '取消',
-        inputPattern: /^.{6,}$/,
-        inputErrorMessage: '密码长度不能小于6位'
-      }).then(async ({ value }) => {
-        // 批量重置密码需要单独处理
-        for (const id of ids) {
-          await resetPassword(id, value)
-        }
-        ElMessage.success(`已为 ${ids.length} 名学生重置密码`)
-      })
-    },
-    delete: () => {
-      ElMessageBox.confirm(`确认删除选中的 ${ids.length} 名学生吗？此操作不可恢复！`, '警告', {
-        confirmButtonText: '确定',
-        cancelButtonText: '取消',
-        type: 'warning'
-      }).then(async () => {
-        let successCount = 0
-        for (const id of ids) {
-          const success = await deleteStudent(id)
-          if (success) successCount++
-        }
-        ElMessage.success(`成功删除 ${successCount} 名学生`)
-        await fetchStudentList()
-        await fetchStatistics()
-      })
-    }
-  }
-  commands[command]?.()
-}
-
 const handleRowCommand = (command, row) => {
   switch (command) {
     case 'resetPwd':
-      resetPwdForm.studentId = row.id
-      resetPwdDialogVisible.value = true
-      break
-    case 'activate':
-      updateStudent({ ...row, status: 'active' }).then(() => {
-        fetchStudentList()
-        fetchStatistics()
-      })
-      break
-    case 'freeze':
-      updateStudent({ ...row, status: 'frozen' }).then(() => {
-        fetchStudentList()
-        fetchStatistics()
-      })
-      break
-    case 'viewGrades':
-      viewStudentGrades(row)
-      break
-    case 'viewActivity':
-      viewStudentActivity(row)
-      break
-    case 'delete':
-      ElMessageBox.confirm(`确认删除学生 ${row.name} 吗？`, '警告', {
+      ElMessageBox.confirm(`确认重置${row.user.name}密码吗?`, {
         confirmButtonText: '确定',
         cancelButtonText: '取消',
         type: 'warning'
       }).then(async () => {
-        await deleteStudent(row.id)
+        await userManageApi.resetPassword(row.id)
+        ElMessage.success(`已为 ${row.user.name} 学生重置密码`)
+      })
+      break
+    case 'delete':
+      ElMessageBox.confirm(`确认删除学生 ${row.user.name} 吗？`, '警告', {
+        confirmButtonText: '确定',
+        cancelButtonText: '取消',
+        type: 'warning'
+      }).then(async () => {
+        await userManageApi.deleteStudent(row.id)
         await fetchStudentList()
         await fetchStatistics()
       })
@@ -360,79 +387,180 @@ const showAddDialog = () => {
 
 const editStudent = (row) => {
   dialogTitle.value = '编辑学生'
-  Object.assign(formData, {
+
+  formData.value = {
     id: row.id,
     studentNo: row.studentNo,
-    name: row.name,
-    gender: row.gender,
-    classId: row.classId,
-    email: row.email,
-    phone: row.phone,
-    status: row.status
-  })
+    name: row.user.name,
+    gender: row.user.gender,
+    classId: row.classInfo.id,
+    email: row.user.email,
+    phone: row.user.phone,
+  }
   dialogVisible.value = true
 }
-
-const viewDetail = (row) => {
+const viewDetail = async (row) => {
+  await fetchStudentDashboard(row.id)
   currentStudent.value = row
   detailDrawerVisible.value = true
   setTimeout(() => {
-    initStudentActivityChart(row.id)
+    initStudentActivityChart()
+    initRadarChart()
   }, 100)
 }
-
-const viewStudentGrades = (row) => {
-  console.log('查看成绩:', row)
-  // 可以跳转到成绩分析页面
-  // router.push({ path: '/grade-analysis', query: { studentId: row.id } })
+const knowledgeData = computed(() => {
+  return currentStudentDashboardData.value?.knowledgeRadarData
+})
+const initRadarChart = async () => {
+  const chartDom = document.getElementById('studentRadarChart')
+  if (!chartDom) return
+  if (studentRadarChart) {
+    studentRadarChart.dispose()
+  }
+  const indicators = Object.keys(knowledgeData.value).map(name => ({ name, max: 100 }));
+  const currentData = Object.values(knowledgeData.value);
+  studentRadarChart = echarts.init(chartDom)
+  studentRadarChart.setOption({
+    title: {
+      text: '知识点掌握程度',
+      left: 'center'
+    },
+    tooltip: {
+      trigger: 'item'
+    },
+    legend: {
+      data: ['当前掌握程度'],
+      left: 'left'
+    },
+    radar: {
+      indicator: indicators,
+      shape: 'circle',
+      center: ['50%', '50%'],
+      radius: '65%',
+      name: {
+        textStyle: {
+          fontSize: 12
+        }
+      }
+    },
+    series: [
+      {
+        name: '知识点掌握情况',
+        type: 'radar',
+        data: [
+          {
+            value: currentData,
+            name: '当前掌握程度',
+            areaStyle: {
+              color: 'rgba(64, 158, 255, 0.3)'
+            },
+            lineStyle: {
+              color: '#409EFF',
+              width: 2
+            },
+            itemStyle: {
+              color: '#409EFF'
+            }
+          }
+        ]
+      }
+    ]
+  }
+  )
 }
-
-const viewStudentActivity = (row) => {
-  console.log('学习记录:', row)
-  // 可以跳转到活跃度监控页面
-}
-
-const initStudentActivityChart = async (studentId) => {
+const gradeTrendData = computed(() => currentStudentDashboardData.value?.scoreTrend || [{ examName: '考试一', score: 0, classRank: 0 }])
+const initStudentActivityChart = async () => {
   const chartDom = document.getElementById('studentActivityChart')
   if (!chartDom) return
   if (studentActivityChart) {
     studentActivityChart.dispose()
   }
-  
-  const data = await fetchStudentActivity(studentId)
-  
+  const scores = gradeTrendData.value.map(item => item.score);
+  const exams = gradeTrendData.value.map(item => item.examName);
+  const classRank = gradeTrendData.value.map(item => item.classRank);
+
   studentActivityChart = echarts.init(chartDom)
   studentActivityChart.setOption({
-    tooltip: { trigger: 'axis' },
+    title: {
+      text: '学习成绩趋势',
+      left: 'center'
+    },
+    tooltip: {
+      trigger: 'axis'
+    },
+    legend: {
+      data: ['我的成绩', '班级排名'],
+      left: 'left'
+    },
+    grid: {
+      left: '3%',
+      right: '4%',
+      bottom: '3%',
+      containLabel: true
+    },
     xAxis: {
       type: 'category',
-      data: data.dates
+      data: exams,
+      boundaryGap: false
     },
-    yAxis: { type: 'value', name: '学习时长(分钟)' },
-    series: [{
-      type: 'line',
-      data: data.minutes,
-      smooth: true,
-      areaStyle: { opacity: 0.3 },
-      lineStyle: { color: '#1d4e7c', width: 2 },
-      symbol: 'circle',
-      symbolSize: 8
-    }]
+    yAxis: {
+      type: 'value',
+      max: 100,
+      name: '分数'
+    },
+    series: [
+      {
+        name: '我的成绩',
+        data: scores,
+        type: 'line',
+        smooth: true,
+        symbol: 'circle',
+        symbolSize: 8,
+        lineStyle: {
+          color: '#409EFF',
+          width: 3
+        },
+        areaStyle: {
+          color: 'rgba(64, 158, 255, 0.1)'
+        },
+        markPoint: {
+          data: [
+            { type: 'max', name: '最高分' },
+            { type: 'min', name: '最低分' }
+          ]
+        },
+        markLine: {
+          data: [{ type: 'average', name: '平均值' }]
+        }
+      },
+      {
+        name: '班级排名',
+        data: classRank,
+        type: 'line',
+        smooth: true,
+        symbol: 'diamond',
+        symbolSize: 8,
+        lineStyle: {
+          color: '#67C23A',
+          width: 2,
+          type: 'dashed'
+        }
+      }
+    ]
   })
 }
 
 const resetForm = () => {
-  Object.assign(formData, {
+  formData.value = {
     id: null,
     studentNo: '',
     name: '',
-    gender: 'M',
+    gender: '男',
     classId: '',
     email: '',
     phone: '',
     password: '',
-    status: 'active'
-  })
+  }
   formRef.value?.resetFields()
 }
 
@@ -440,9 +568,9 @@ const submitForm = async () => {
   await formRef.value?.validate()
   let success
   if (dialogTitle.value === '新增学生') {
-    success = await addStudent(formData)
+    success = await addStudent(formData.value)
   } else {
-    success = await updateStudent(formData)
+    success = await updateStudent(formData.value)
   }
   if (success) {
     dialogVisible.value = false
@@ -451,79 +579,57 @@ const submitForm = async () => {
   }
 }
 
-const confirmResetPassword = async () => {
-  if (resetPwdForm.password !== resetPwdForm.confirmPassword) {
-    ElMessage.error('两次输入的密码不一致')
-    return
-  }
-  if (resetPwdForm.password.length < 6) {
-    ElMessage.error('密码长度不能小于6位')
-    return
-  }
-  const success = await resetPassword(resetPwdForm.studentId, resetPwdForm.password)
-  if (success) {
-    resetPwdDialogVisible.value = false
-    resetPwdForm.password = ''
-    resetPwdForm.confirmPassword = ''
-  }
-}
-
 const showImportDialog = () => {
   importDialogVisible.value = true
 }
 
-const downloadTemplate = () => {
-  const link = document.createElement('a')
-  link.download = '学生导入模板.xlsx'
-  link.href = '/templates/student_import_template.xlsx'
-  link.click()
-}
-
-const beforeUpload = (file) => {
-  const isValid = file.type === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' ||
-    file.type === 'application/vnd.ms-excel'
-  if (!isValid) {
-    ElMessage.error('请上传Excel文件')
-    return false
-  }
-  const isLt10M = file.size / 1024 / 1024 < 10
-  if (!isLt10M) {
-    ElMessage.error('文件大小不能超过10MB')
-    return false
-  }
-  return true
-}
-
-const onImportSuccess = async (response) => {
-  if (response.code === 200) {
-    ElMessage.success(`导入成功，共导入 ${response.data?.count || 0} 名学生`)
-    importDialogVisible.value = false
-    await fetchStudentList()
-    await fetchStatistics()
-  } else {
-    ElMessage.error(response.message || '导入失败')
-  }
-}
-
-const onImportError = () => {
-  ElMessage.error('导入失败，请检查文件格式或网络')
-}
 
 const exportToExcel = () => {
-  const params = {
-    classId: searchModel.value.classId || '',
-    status: searchModel.value.status || '',
-    keyword: searchModel.value.keyword || ''
+  try {
+    console.log('qwe', studentList.value)
+    const exportData = studentList.value?.map((item, index) => ({
+      id: index + 1,
+      name: item?.user.name || '',
+      username: item?.user.username || "",
+      studentNo: item?.studentNo,
+      grade: item?.grade,
+      email: item?.user?.email || '',
+      gender: item?.user?.gender || "未知",
+      phone: item?.user?.phone || '',
+      className: item?.classInfo?.name || '',
+      teacherName: item?.classInfo?.teacher?.user?.name || '',
+      teacherPhone: item?.classInfo?.teacher?.user?.phone || ''
+    })) || []
+    if (exportData.length === 0) {
+      ElMessage.warning('没有可导出的数据')
+      return
+    }
+    //导出数据
+    exportMemberExcel(exportData, `学生数据_${new Date().toLocaleDateString()}`)
+    ElMessage.success('导出成功')
+  } catch (error) {
+    ElMessage.error(`导出失败: ${error.message}`)
   }
-  userManageApi.exportStudents(params)
 }
 
-watch([() => searchModel.value.classId, () => searchModel.value.status], () => {
+watch([() => searchModel.value.classId, () => searchModel.value.courseId], () => {
   handleFilterChange()
+})
+
+watch([() => formData.value?.classId], () => {
+  if (formData.value?.classId) {
+    const selectedClass = classList.value.find(cls => cls.id === formData.value.classId)
+    if (selectedClass) {
+      formData.value.grade = selectedClass.grade
+    }
+  } else {
+    formData.value.grade = '大一'
+  }
 })
 
 onMounted(async () => {
   await fetchClassList()
+  await fetchCourseList()
   await fetchStudentList()
   await fetchStatistics()
 })
@@ -539,11 +645,9 @@ onMounted(async () => {
           @change="handleFilterChange">
           <el-option v-for="cls in classList" :key="cls.id" :label="cls.name" :value="cls.id" />
         </el-select>
-        <el-select size="large" v-model="searchModel.status" placeholder="账号状态" clearable style="width: 120px"
+        <el-select size="large" v-model="searchModel.courseId" placeholder="按课程筛选" clearable style="width: 150px"
           @change="handleFilterChange">
-          <el-option label="正常" value="active" />
-          <el-option label="冻结" value="frozen" />
-          <el-option label="待激活" value="pending" />
+          <el-option v-for="cls in courseList" :key="cls.id" :label="cls.name" :value="cls.id" />
         </el-select>
       </div>
       <div class="action-right">
@@ -556,75 +660,53 @@ onMounted(async () => {
         <el-button @click="exportToExcel">
           <i class="fas fa-file-excel"></i> 导出Excel
         </el-button>
-        <el-dropdown @command="handleBatchCommand">
-          <el-button>
-            批量操作 <i class="fas fa-chevron-down"></i>
-          </el-button>
-          <template #dropdown>
-            <el-dropdown-menu>
-              <el-dropdown-item command="activate">批量激活</el-dropdown-item>
-              <el-dropdown-item command="freeze">批量冻结</el-dropdown-item>
-              <el-dropdown-item command="resetPwd">批量重置密码</el-dropdown-item>
-              <el-dropdown-item command="delete" divided>批量删除</el-dropdown-item>
-            </el-dropdown-menu>
-          </template>
-        </el-dropdown>
       </div>
     </div>
 
     <!-- 统计卡片 -->
     <el-row :gutter="20" :style="{ marginBottom: '20px' }">
       <el-col :span="6">
-        <StatsCard type="total" icon="fa-users" title="学生总数" :value="statistics.total" />
+        <StatsCard type="total" icon="fa-users" title="学生总数" :value="statistics.totalStudentCount" />
       </el-col>
       <el-col :span="6">
-        <StatsCard type="active" icon="fa-user-check" title="正常" :value="statistics.active" />
+        <StatsCard type="active" icon="fa-user-check" title="平均活动分数" :value="statistics.avgActivityScore" />
       </el-col>
       <el-col :span="6">
-        <StatsCard type="frozen" icon="fa-user-lock" title="冻结" :value="statistics.frozen" />
+        <StatsCard type="frozen" icon="fa-user-lock" title="低活跃人数" :value="statistics.lowActivityCount" />
       </el-col>
       <el-col :span="6">
-        <StatsCard type="pending" icon="fa-user-clock" title="待激活" :value="statistics.pending" />
+        <StatsCard type="pending" icon="fa-user-clock" title="平均考试成绩" :value="statistics.avgExamScore" />
       </el-col>
     </el-row>
 
     <!-- 学生列表表格 -->
     <div class="table-container">
-      <el-table :data="studentList" v-loading="loading" stripe border @selection-change="handleSelectionChange"
-        style="width: 100%">
-        <el-table-column type="selection" width="50" />
-        <el-table-column prop="studentNo" label="学号" width="120" sortable />
-        <el-table-column prop="name" label="姓名" width="120">
+      <el-table :data="studentList" v-loading="loading" stripe border style="width: 100%">
+        <el-table-column prop="studentNo" label="学号" width="120" />
+        <el-table-column prop="user.username" label="用户名" width="120" />
+        <el-table-column prop="user" label="姓名" width="120">
           <template #default="{ row }">
             <div class="student-name">
               <el-avatar :size="32" :src="row.avatar">
-                {{ row.name?.charAt(0) || 'U' }}
+                {{ row.user.name?.charAt(0) || 'U' }}
               </el-avatar>
-              <span>{{ row.name }}</span>
+              <span>{{ row.user.name }}</span>
             </div>
           </template>
         </el-table-column>
         <el-table-column prop="gender" label="性别" width="60">
           <template #default="{ row }">
-            <span>{{ row.gender === 'M' ? '男' : '女' }}</span>
+            <span>{{ row.user.gender }}</span>
           </template>
         </el-table-column>
-        <el-table-column prop="className" label="班级" width="100" />
-        <el-table-column prop="email" label="邮箱" min-width="180" show-overflow-tooltip />
-        <el-table-column prop="phone" label="手机号" width="120" />
-        <el-table-column prop="status" label="状态" width="80">
+        <el-table-column prop="classInfo.name" label="班级" width="100" />
+        <el-table-column prop="user.email" label="邮箱" min-width="180" show-overflow-tooltip />
+        <el-table-column prop="user.phone" label="手机号" width="120" />
+        <el-table-column prop="lastLoginTime" label="最后登录" width="130">
           <template #default="{ row }">
-            <el-tag :type="getStatusType(row.status)" size="small">
-              {{ getStatusText(row.status) }}
-            </el-tag>
+            {{ row.user.lastLoginTime?.slice(0, 3).join('.') }}
           </template>
         </el-table-column>
-        <el-table-column prop="lastLoginTime" label="最后登录" width="130" sortable>
-          <template #default="{ row }">
-            {{ formatDateTime(row.lastLoginTime) }}
-          </template>
-        </el-table-column>
-        <el-table-column prop="createTime" label="注册时间" width="110" />
         <el-table-column label="操作" width="200" fixed="right">
           <template #default="{ row }">
             <el-button link type="primary" size="small" @click="viewDetail(row)">
@@ -640,11 +722,6 @@ onMounted(async () => {
               <template #dropdown>
                 <el-dropdown-menu>
                   <el-dropdown-item command="resetPwd">重置密码</el-dropdown-item>
-                  <el-dropdown-item :command="row.status === 'active' ? 'freeze' : 'activate'">
-                    {{ row.status === 'active' ? '冻结账号' : '激活账号' }}
-                  </el-dropdown-item>
-                  <el-dropdown-item command="viewGrades">查看成绩</el-dropdown-item>
-                  <el-dropdown-item command="viewActivity">学习记录</el-dropdown-item>
                   <el-dropdown-item command="delete" divided>删除</el-dropdown-item>
                 </el-dropdown-menu>
               </template>
@@ -671,8 +748,8 @@ onMounted(async () => {
         </el-form-item>
         <el-form-item label="性别" prop="gender">
           <el-radio-group v-model="formData.gender">
-            <el-radio value="M">男</el-radio>
-            <el-radio value="F">女</el-radio>
+            <el-radio value="男">男</el-radio>
+            <el-radio value="女">女</el-radio>
           </el-radio-group>
         </el-form-item>
         <el-form-item label="班级" prop="classId">
@@ -689,13 +766,6 @@ onMounted(async () => {
         <el-form-item label="初始密码" prop="password" v-if="dialogTitle === '新增学生'">
           <el-input v-model="formData.password" placeholder="默认密码为123456" show-password />
         </el-form-item>
-        <el-form-item label="账号状态" prop="status" v-if="dialogTitle === '编辑学生'">
-          <el-select v-model="formData.status" placeholder="请选择状态" style="width: 100%">
-            <el-option label="正常" value="active" />
-            <el-option label="冻结" value="frozen" />
-            <el-option label="待激活" value="pending" />
-          </el-select>
-        </el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="dialogVisible = false">取消</el-button>
@@ -708,84 +778,145 @@ onMounted(async () => {
       <div class="import-content">
         <div class="import-tips">
           <i class="fas fa-info-circle"></i>
-          <span>请下载模板，按照模板格式填写后上传</span>
+          <span>包含基本学生信息，否则导入不成功！</span>
         </div>
         <div class="import-actions">
-          <el-button type="primary" plain @click="downloadTemplate">
-            <i class="fas fa-download"></i> 下载导入模板
-          </el-button>
-          <el-upload class="upload-demo" drag action="/api/teacher/students/import" :before-upload="beforeUpload"
-            :on-success="onImportSuccess" :on-error="onImportError" accept=".xlsx,.xls">
+          <el-upload ref="uploadRef" class="upload-demo" drag :auto-upload="false" :on-change="handleFileChange"
+            :before-upload="beforeUpload" :limit="1" accept=".xlsx,.xls,.csv,.txt,.pdf,.doc,.docx">
             <i class="fas fa-cloud-upload-alt"></i>
             <div class="el-upload__text">将文件拖到此处，或<em>点击上传</em></div>
             <template #tip>
               <div class="el-upload__tip">
-                支持 .xlsx 和 .xls 格式，文件大小不超过10MB
+                支持 .xlsx, .csv, .txt, .pdf, .docx 格式文件，文件大小不超过10MB
               </div>
             </template>
           </el-upload>
+          <!-- 选中的文件信息 -->
+          <div v-if="selectedFile" class="file-info">
+            <el-alert :title="`已选择文件：${selectedFile.name}`" type="info" :closable="false" />
+          </div>
         </div>
       </div>
+      <!-- 操作按钮 -->
+      <div v-if="selectedFile" class="action-buttons">
+        <el-button type="primary" @click="uploadFile" :loading="uploading">
+          <el-icon>
+            <Upload />
+          </el-icon>
+          开始解析
+        </el-button>
+        <el-button @click="clearFile">清空</el-button>
+      </div>
+
+      <!-- 解析结果展示 -->
+      <div v-if="parseResult" class="parse-result">
+        <el-divider>解析结果</el-divider>
+
+        <!-- 成功提示 -->
+        <el-alert v-if="parseResult.success" title="解析成功" type="success" :closable="false" />
+
+        <!-- 错误提示 -->
+        <el-alert v-else title="解析失败" type="error" :closable="false">
+          <template #default>
+            <div v-for="(error, idx) in parseResult.errors" :key="idx" class="error-item">
+              {{ error.errorMessage }}
+            </div>
+          </template>
+        </el-alert>
+
+        <!-- 数据摘要 -->
+        <div class="summary">
+          <strong>摘要：</strong>{{ parseResult.summary }}
+        </div>
+
+        <!-- 解析出的数据表格 -->
+        <div v-if="parseResult.data && parseResult.data.length > 0" class="data-table">
+          <h4>解析出的数据（请确认）</h4>
+          <el-table :data="parseResult.data" border stripe height="300">
+            <el-table-column v-for="col in Object.keys(parseResult.data[0])" :key="col" :prop="col" :label="col"
+              width="150">
+              <template #default="{ row }">
+                <el-input v-model="row[col]" size="small" />
+              </template>
+            </el-table-column>
+          </el-table>
+        </div>
+        <!-- 确认按钮 -->
+        <div v-if="parseResult.data" class="confirm-buttons">
+          <el-button type="success" @click="confirmInsert" :loading="confirming">
+            <el-icon>
+              <Check />
+            </el-icon>
+            确认插入数据库
+          </el-button>
+          <el-button type="danger" @click="cancelInsert">
+            <el-icon>
+              <Close />
+            </el-icon>
+            取消
+          </el-button>
+        </div>
+      </div>
+
     </el-dialog>
 
     <!-- 学生详情弹窗 -->
-    <el-drawer v-model="detailDrawerVisible" title="学生详情" direction="rtl" size="500px">
+    <el-drawer v-model="detailDrawerVisible" title="学生详情" direction="rtl" size="1200px">
       <div class="student-detail" v-if="currentStudent">
-        <div class="detail-avatar">
-          <el-avatar :size="80" :src="currentStudent.avatar">
-            {{ currentStudent.name?.charAt(0) }}
-          </el-avatar>
-          <h3>{{ currentStudent.name }}</h3>
-          <p>{{ currentStudent.studentNo }}</p>
-        </div>
-        <el-descriptions :column="1" border>
+        <el-descriptions :column="2" border>
+          <el-descriptions-item label="名字">
+            <div class="detail-avatar">
+              <el-avatar :size="80" :src="currentStudent.avatar">
+                {{ currentStudent.user.name?.charAt(0) }}
+              </el-avatar>
+              <h3>{{ currentStudent.user.name }}</h3>
+              <p>{{ currentStudent.studentNo }}</p>
+            </div>
+          </el-descriptions-item>
           <el-descriptions-item label="性别">
-            {{ currentStudent.gender === 'M' ? '男' : '女' }}
+            {{ currentStudent?.user?.gender || '未知' }}
           </el-descriptions-item>
           <el-descriptions-item label="班级">
-            {{ currentStudent.className }}
+            {{ currentStudent.classInfo.name }}
           </el-descriptions-item>
           <el-descriptions-item label="邮箱">
-            {{ currentStudent.email || '-' }}
+            {{ currentStudent.user.email || '-' }}
           </el-descriptions-item>
           <el-descriptions-item label="手机号">
-            {{ currentStudent.phone || '-' }}
+            {{ currentStudent.user.phone || '-' }}
           </el-descriptions-item>
-          <el-descriptions-item label="账号状态">
-            <el-tag :type="getStatusType(currentStudent.status)" size="small">
-              {{ getStatusText(currentStudent.status) }}
-            </el-tag>
+          <el-descriptions-item label="手机号">
+            {{ currentStudent.user.phone || '-' }}
           </el-descriptions-item>
-          <el-descriptions-item label="最后登录">
-            {{ formatDateTime(currentStudent.lastLoginTime) }}
+          <el-descriptions-item label="导师">
+            {{ currentStudent?.classInfo?.teacher?.user?.name || '-' }}
           </el-descriptions-item>
-          <el-descriptions-item label="注册时间">
-            {{ currentStudent.createTime }}
+          <el-descriptions-item label="导师电话">
+            {{ currentStudent?.classInfo?.teacher?.user?.phone || '-' }}
           </el-descriptions-item>
         </el-descriptions>
-
+        <el-row :gutter="20" style="margin-top: 20px;">
+          <el-col :span="6">
+            <StatBox icon="fa-book-open" title="活动得分" :stat-num="currentStudentDashboardData.activityScore" />
+          </el-col>
+          <el-col :span="6">
+            <StatBox icon="fa-clock" title="作业平均分" :stat-num="currentStudentDashboardData.homeworkAvgScore" />
+          </el-col>
+          <el-col :span="6">
+            <StatBox icon="fa-pencil-alt" title="平均分" :stat-num="currentStudentDashboardData.avgScore" />
+          </el-col>
+          <el-col :span="6">
+            <StatBox icon="fa-trophy" title="作业完成数" :stat-num="currentStudentDashboardData.completedHomework" />
+          </el-col>
+        </el-row>
         <div class="detail-charts">
-          <h4>近7天学习数据</h4>
           <div id="studentActivityChart" style="height: 200px"></div>
+        </div>
+        <div class="detail-charts" v-if="Object.keys(knowledgeData || {}).length > 0">
+          <div id="studentRadarChart" style="height: 200px"></div>
         </div>
       </div>
     </el-drawer>
-
-    <!-- 重置密码弹窗 -->
-    <el-dialog v-model="resetPwdDialogVisible" title="重置密码" width="400px" body-class="form-dialog">
-      <el-form :model="resetPwdForm" label-width="100px">
-        <el-form-item label="新密码">
-          <el-input v-model="resetPwdForm.password" type="password" placeholder="请输入新密码" show-password />
-        </el-form-item>
-        <el-form-item label="确认密码">
-          <el-input v-model="resetPwdForm.confirmPassword" type="password" placeholder="请再次输入新密码" show-password />
-        </el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button @click="resetPwdDialogVisible = false">取消</el-button>
-        <el-button type="primary" @click="confirmResetPassword">确定</el-button>
-      </template>
-    </el-dialog>
   </div>
 </template>
 
@@ -871,6 +1002,7 @@ onMounted(async () => {
 
   .student-detail {
     padding: 0 8px;
+
 
     .detail-avatar {
       text-align: center;

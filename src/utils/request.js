@@ -6,7 +6,7 @@ import { USE_MOCK, API_BASE_URL } from '@/config/env'
 
 const request = axios.create({
   baseURL: USE_MOCK ? '/api' : API_BASE_URL,
-  timeout: 15000,
+  timeout: 100000,
   headers: {
     'Content-Type': 'application/json',
   },
@@ -31,11 +31,7 @@ request.interceptors.response.use(
     if (res.data.code === 200) {
       return res.data
     }
-    // else if (res.status === 403) {
-    //   authStore.logout()
-    //   router.push('/login')
-    //   ElMessage.error(res.data.msg)
-    // } else if (res.data.code === 'A0231') {
+    //else if (res.data.code === 'A0231') {
     //   router.push('/403')
     //   ElMessage.error(res.data.msg)
     // }
@@ -44,6 +40,16 @@ request.interceptors.response.use(
     return Promise.reject(new Error(res.data.message || '操作失败'))
   },
   (err) => {
+    const authStore = useAuthStore()
+    if (err.response && err.response.status) {
+      if (err.response.status === 403) {
+        authStore.logout()
+        router.push('/login')
+        ElMessage.error(err.response?.msg || '登录过期，请重新登录')
+      } else {
+        ElMessage.error(err.response?.data?.message || '请求失败')
+      }
+    }
     return Promise.reject(err)
   },
 )

@@ -2,29 +2,47 @@ import request from '@/utils/request'
 
 export const tDashboardApi = {
   // 获取班级列表
-  getClassList(teacherId) {
+  getClassList() {
     return request({
-      url: '/teacher/classes',
+      url: '/dashboard/teacher/classes',
       method: 'get',
-      params: { teacherId },
     })
   },
 
-  // 获取考试列表
-  getExamList(classId) {
+  refreshAISuggestions(classId) {
     return request({
-      url: '/teacher/exams',
+      url: `/dashboard/teacher/ai-report/refresh`,
+      method: 'post',
+      params: { classId },
+    })
+  },
+
+  getMoreData(classId) {
+    return request({
+      url: '/dashboard/teacher/data',
+      method: 'get',
+      params: { classId },
+    })
+  },
+  getAISuggestions(classId) {
+    return request({
+      url: '/dashboard/teacher/ai-report/latest',
       method: 'get',
       params: { classId },
     })
   },
 
-  // 获取统计数据
-  getStats(classId) {
+  getCourseList() {
     return request({
-      url: '/teacher/stats',
+      url: '/dashboard/teacher/courses',
       method: 'get',
-      params: { classId },
+    })
+  },
+
+  getDashboardData(classId) {
+    return request({
+      url: `/dashboard/teacher/class/${classId}`,
+      method: 'get',
     })
   },
 
@@ -37,12 +55,25 @@ export const tDashboardApi = {
     })
   },
 
-  // 获取高频错题
-  getHighFrequencyErrors(classId, examId) {
+  // 获取考试数据
+  getExamLists(classId) {
     return request({
-      url: '/teacher/high-frequency-errors',
+      url: `/dashboard/teacher/class/${classId}/trend`,
       method: 'get',
-      params: { classId, examId },
+    })
+  },
+
+  //获取作业数据分析
+  getHomeworkData(classId) {
+    return request({
+      url: `/dashboard/teacher/class/${classId}/summary`,
+      method: 'get',
+    })
+  },
+  getActivityData(classId) {
+    return request({
+      url: `/dashboard/teacher/class/${classId}/activity`,
+      method: 'get',
     })
   },
 
@@ -85,27 +116,27 @@ export const tDashboardApi = {
 
 export const userManageApi = {
   // 获取学生列表
-  getStudentList(params) {
+  getStudentList(data) {
     return request({
-      url: '/teacher/students',
-      method: 'get',
-      params,
+      url: '/student-manage/list',
+      method: 'post',
+      data,
     })
   },
 
   // 获取统计数据
-  getStudentStatistics(classId) {
+  getStudentStatistics(classId, courseId) {
     return request({
-      url: '/teacher/students/statistics',
+      url: '/student-manage/stats',
       method: 'get',
-      params: { classId },
+      params: { classId, courseId },
     })
   },
 
   // 新增学生
   addStudent(data) {
     return request({
-      url: '/teacher/student',
+      url: '/student-manage',
       method: 'post',
       data,
     })
@@ -114,7 +145,7 @@ export const userManageApi = {
   // 更新学生
   updateStudent(id, data) {
     return request({
-      url: `/teacher/student/${id}`,
+      url: `/student-manage/${id}`,
       method: 'put',
       data,
     })
@@ -123,7 +154,7 @@ export const userManageApi = {
   // 删除学生
   deleteStudent(id) {
     return request({
-      url: `/teacher/student/${id}`,
+      url: `/student-manage/${id}`,
       method: 'delete',
     })
   },
@@ -138,11 +169,10 @@ export const userManageApi = {
   },
 
   // 重置密码
-  resetPassword(studentId, password) {
+  resetPassword(studentId) {
     return request({
-      url: `/teacher/student/${studentId}/reset-password`,
+      url: `/student-manage/${studentId}/reset-password`,
       method: 'post',
-      data: { password },
     })
   },
 
@@ -161,16 +191,6 @@ export const userManageApi = {
       url: '/teacher/student-activity',
       method: 'get',
       params: { studentId },
-    })
-  },
-
-  // 导出学生数据
-  exportStudents(params) {
-    return request({
-      url: '/teacher/students/export',
-      method: 'get',
-      params,
-      responseType: 'blob',
     })
   },
 
@@ -322,28 +342,42 @@ export const tHomeworkApi = {
 }
 
 export const tExamApi = {
-  // 获取考试列表
-  getExamLists(params) {
+  getScoreList(params) {
     return request({
-      url: '/teacher/examsList',
+      url: `/exam-manage/${params.examId}/grades`,
       method: 'get',
       params,
+    })
+  },
+  // 获取考试列表
+  getExamLists(data) {
+    return request({
+      url: '/exam-manage/list',
+      method: 'post',
+      data,
     })
   },
 
   // 创建考试
   createExam(data) {
     return request({
-      url: '/teacher/exam',
+      url: '/exam-manage/create',
       method: 'post',
       data,
+    })
+  },
+  getExamStatistics(params) {
+    return request({
+      url: '/exam-manage/stats',
+      method: 'get',
+      params: { params },
     })
   },
 
   // 更新考试
   updateExam(examId, data) {
     return request({
-      url: `/teacher/exam/${examId}`,
+      url: `/exam-manage/update/${examId}`,
       method: 'put',
       data,
     })
@@ -352,7 +386,7 @@ export const tExamApi = {
   // 删除考试
   deleteExam(examId) {
     return request({
-      url: `/teacher/exam/${examId}`,
+      url: `/exam-manage/${examId}`,
       method: 'delete',
     })
   },
@@ -360,7 +394,7 @@ export const tExamApi = {
   // 获取成绩列表
   getExamScores(examId) {
     return request({
-      url: `/teacher/exam/${examId}/scores`,
+      url: `/exam-manage/${examId}/detail`,
       method: 'get',
     })
   },
@@ -374,65 +408,11 @@ export const tExamApi = {
     })
   },
 
-  // 发布成绩
-  publishExamScores(examId) {
-    return request({
-      url: `/teacher/exam/${examId}/publish`,
-      method: 'post',
-    })
-  },
-
   // 获取考试分析数据
   getExamAnalysis(examId) {
     return request({
-      url: `/teacher/exam/${examId}/analysis`,
+      url: `/exam-manage/${examId}/detail`,
       method: 'get',
-    })
-  },
-
-  // 获取班级对比数据
-  getExamCompare(examId, classIds) {
-    return request({
-      url: `/teacher/exam/${examId}/compare`,
-      method: 'get',
-      params: { examId, classIds: classIds.join(',') },
-    })
-  },
-
-  // 导出考试数据
-  exportExamsData(params) {
-    return request({
-      url: '/teacher/exams/export',
-      method: 'get',
-      params,
-      responseType: 'blob',
-    })
-  },
-
-  // 导出成绩
-  exportExamScores(examId) {
-    return request({
-      url: `/teacher/exam/${examId}/export`,
-      method: 'get',
-      responseType: 'blob',
-    })
-  },
-
-  // 导出成绩单
-  exportScoreSheet(examId) {
-    return request({
-      url: `/teacher/exam/${examId}/score-sheet`,
-      method: 'get',
-      responseType: 'blob',
-    })
-  },
-
-  // 下载导入模板
-  downloadScoreTemplate(examId) {
-    return request({
-      url: `/teacher/exam/${examId}/template`,
-      method: 'get',
-      responseType: 'blob',
     })
   },
 }

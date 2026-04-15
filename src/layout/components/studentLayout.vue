@@ -1,5 +1,5 @@
 <script setup>
-import { computed, watch } from 'vue'
+import { computed, onMounted, watch, ref } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useAuthStore } from '@/stores/index.js'
 import {
@@ -12,6 +12,7 @@ import {
   Files,
 } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { authApi } from '@/api'
 
 const props = defineProps({
   menuList: {
@@ -22,6 +23,17 @@ const props = defineProps({
 const router = useRouter()
 const route = useRoute()
 const authStore = useAuthStore()
+const userInfo = ref(null)
+const loadUserInfo = async () => {
+  try {
+    const res = await authApi.getUserInfo()
+    if (res && res.data) {
+      userInfo.value = res.data?.user
+    }
+  } catch (error) {
+    console.error('加载用户信息失败:', error)
+  }
+}
 
 const handleLogout = () => {
   ElMessageBox.confirm(
@@ -51,6 +63,9 @@ const handleLogout = () => {
 
 const activeMenu = computed(() => route.path)
 console.log('当前路径:', props.menuList)
+onMounted(async () => {
+  await loadUserInfo()
+})
 </script>
 
 <template>
@@ -64,8 +79,8 @@ console.log('当前路径:', props.menuList)
         <i class="fas fa-bell"></i>
         <el-dropdown>
           <div class="user-info">
-            <div class="avatar">张</div>
-            <span>张小明</span>
+            <div class="avatar">{{ userInfo?.user?.name.slice(0, 1) || 'U' }}</div>
+            <span>{{ userInfo?.user?.name }}</span>
             <el-icon>
               <ArrowDown />
             </el-icon>

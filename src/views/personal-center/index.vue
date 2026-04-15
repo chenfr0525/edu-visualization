@@ -1,11 +1,10 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { useAuthStore } from '@/stores/index.js'
-import { userApi } from '@/api/index.js'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { authApi, userApi } from '@/api/index.js'
+import { ElMessage } from 'element-plus'
 import EditInfoDialog from './component/edit-info-dialog.vue'
 import EditPasswordDialog from './component/edit-password-dialog.vue'
-import AvatarDialog from './component/avatar-dialog.vue'
 
 const authStore = useAuthStore()
 const userRole = computed(() => authStore.userRole)
@@ -15,25 +14,23 @@ const userInfo = ref({
   id: '',
   name: '',
   avatar: '',
-  className: '',
-  grade: '',
   username: '',
   email: '',
   phone: '',
-  registerTime: '',
-  role: ''
+  role: '',
+  updatedAt: ""
 })
 
 // 弹窗控制
 const editDialogVisible = ref(false)
 const passwordDialogVisible = ref(false)
-const avatarDialogVisible = ref(false)
 // 加载用户信息
 const loadUserInfo = async () => {
   try {
-    const res = await userApi.getUserInfo(authStore.userId, userRole.value)
+    const res = await authApi.getUserInfo()
     if (res && res.data) {
-      userInfo.value = res.data
+      userInfo.value = { ...res.data?.user?.user, id: res.data?.user.id }
+      console.log('用户信息:', userInfo.value)
     }
   } catch (error) {
     console.error('加载用户信息失败:', error)
@@ -44,11 +41,7 @@ const loadUserInfo = async () => {
 // 更新信息
 const handleUpdateInfo = async (data) => {
   try {
-    const res = await userApi.updateUserInfo({
-      userId: authStore.userId,
-      role: userRole.value,
-      ...data
-    })
+    const res = await userApi.updateUserInfo(data)
     if (res && res.code === 200) {
       ElMessage.success('信息更新成功')
       editDialogVisible.value = false
@@ -63,10 +56,7 @@ const handleUpdateInfo = async (data) => {
 // 修改密码
 const handleChangePassword = async (data) => {
   try {
-    const res = await userApi.changePassword({
-      userId: authStore.userId,
-      ...data
-    })
+    const res = await userApi.changePassword(data)
     if (res && res.code === 200) {
       ElMessage.success('密码修改成功')
       passwordDialogVisible.value = false
@@ -76,21 +66,11 @@ const handleChangePassword = async (data) => {
     ElMessage.error(error.response?.data?.message || '修改密码失败')
   }
 }
-// 更新头像
-const handleAvatarSuccess = async (avatarUrl) => {
-  try {
-    // 这里可以调用更新用户头像的接口
-    userInfo.value.avatar = avatarUrl
-    ElMessage.success('头像更新成功')
-  } catch (error) {
-    console.error('更新头像失败:', error)
-  }
-}
 
 // 格式化时间
 const formatTime = (time) => {
   if (!time) return ''
-  return time.split(' ')[0]
+  return time.slice(0, 3).join('-')
 }
 
 onMounted(async () => {
@@ -112,9 +92,6 @@ onMounted(async () => {
           <p v-if="userRole === 'student'">班级: {{ userInfo.className }}</p>
           <p v-if="userRole === 'teacher'">部门: {{ userInfo.department }}</p>
           <p v-if="userRole === 'teacher'">职称: {{ userInfo.title }}</p>
-          <el-button size="large" type="primary" @click="avatarDialogVisible = true">
-            <i class="fas fa-edit"></i> 更新头像
-          </el-button>
         </el-col>
         <el-col :span="16" class="info-right">
           <el-card shadow="never" style="background: #f9fcff;">
@@ -130,7 +107,7 @@ onMounted(async () => {
                 <span class="label">手机号</span>
                 <span class="value">{{ userInfo.phone || '未设置' }}</span>
                 <span class="label">注册时间</span>
-                <span class="value">{{ formatTime(userInfo.registerTime) }}</span>
+                <span class="value">{{ formatTime(userInfo.updatedAt) }}</span>
               </div>
               <div class="info-row" v-if="userRole === 'student'">
                 <span class="label">年级</span>
@@ -146,7 +123,7 @@ onMounted(async () => {
               </div>
             </div>
           </el-card>
-           <div class="btn-group">
+          <div class="btn-group">
             <el-button size="large" type="primary" @click="editDialogVisible = true">
               <i class="fas fa-edit"></i> 编辑资料
             </el-button>
@@ -158,23 +135,9 @@ onMounted(async () => {
       </el-row>
     </el-card>
 
-     <EditInfoDialog
-      v-model:visible="editDialogVisible"
-      :user-info="userInfo"
-      :user-role="userRole"
-      @submit="handleUpdateInfo"
-    />
-    
-    <EditPasswordDialog
-      v-model:visible="passwordDialogVisible"
-      @submit="handleChangePassword"
-    />
-    
-    <AvatarDialog
-      v-model:visible="avatarDialogVisible"
-      :user-info="userInfo"
-      @success="handleAvatarSuccess"
-    />
+    <EditInfoDialog v-model:visible="editDialogVisible" :user-info="userInfo" :user-role="userRole"
+      @submit="handleUpdateInfo" />
+    <EditPasswordDialog v-model:visible="passwordDialogVisible" @submit="handleChangePassword" />
   </div>
 </template>
 
@@ -200,23 +163,23 @@ onMounted(async () => {
     gap: 20px;
 
     .info-content {
-          .info-row {
-            display: grid;
-            grid-template-columns: 80px 1fr 80px 1fr;
-            gap: 12px;
-            margin-bottom: 16px;
-            
-            .label {
-              color: #6b7280;
-              font-size: 13px;
-            }
-            
-            .value {
-              color: #1f2937;
-              font-weight: 500;
-            }
-          }
+      .info-row {
+        display: grid;
+        grid-template-columns: 80px 1fr 80px 1fr;
+        gap: 12px;
+        margin-bottom: 16px;
+
+        .label {
+          color: #6b7280;
+          font-size: 13px;
         }
+
+        .value {
+          color: #1f2937;
+          font-weight: 500;
+        }
+      }
+    }
 
     .btn-group {
       display: flex;
@@ -230,7 +193,7 @@ onMounted(async () => {
 @media (max-width: 768px) {
   .personal-center {
     padding: 10px;
-    
+
     .personal-card {
       .info-left {
         border-right: none;
@@ -238,11 +201,11 @@ onMounted(async () => {
         padding-bottom: 20px;
         margin-bottom: 20px;
       }
-      
+
       .info-right .info-card .info-content .info-row {
         grid-template-columns: 1fr 1fr;
         gap: 8px;
-        
+
         .label:nth-child(3),
         .value:nth-child(4) {
           display: none;

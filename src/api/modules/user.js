@@ -2,13 +2,13 @@ import request from '@/utils/request'
 
 export const userApi = {
   // 获取用户信息
-  getUserInfo(userId, role) {
-    return request({
-      url: '/user/info',
-      method: 'get',
-      params: { userId, role },
-    })
-  },
+  // getUserInfo(userId, role) {
+  //   return request({
+  //     url: '/user/info',
+  //     method: 'get',
+  //     params: { userId, role },
+  //   })
+  // },
 
   // 获取统计数据
   getUserStats(userId, role) {
@@ -31,7 +31,7 @@ export const userApi = {
   // 更新用户信息
   updateUserInfo(data) {
     return request({
-      url: '/user/update',
+      url: '/auth/update-info',
       method: 'post',
       data,
     })
@@ -40,7 +40,7 @@ export const userApi = {
   // 修改密码
   changePassword(data) {
     return request({
-      url: '/user/change-password',
+      url: '/auth/update-password',
       method: 'post',
       data,
     })

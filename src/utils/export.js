@@ -1,5 +1,16 @@
 import html2canvas from 'html2canvas'
 import jsPDF from 'jspdf'
+import * as XLSX from 'xlsx'
+import { saveAs } from 'file-saver'
+
+export const formatExamDate = (dateArray) => {
+  if (!dateArray || !Array.isArray(dateArray) || dateArray.length < 3) {
+    return ''
+  }
+  // 格式化为 YYYY-MM-DD HH:mm:ss
+  const [year, month, day, hour = 0, minute = 0, second = 0] = dateArray
+  return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')} ${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}:${String(second).padStart(2, '0')}`
+}
 
 /**
  * 将 HTML 元素导出为图片
@@ -81,4 +92,44 @@ export const exportToCSV = (csvContent, fileName = 'export') => {
   link.setAttribute('download', `${fileName}.csv`)
   link.click()
   URL.revokeObjectURL(url)
+}
+
+// 导出学生成员列表
+export const exportMemberExcel = (data, fileName) => {
+  // 定义表头映射
+  const headers = [
+    { label: '序号', prop: 'id' },
+    { label: '姓名', prop: 'name' },
+    { label: '用户名', prop: 'username' },
+    { label: '学号', prop: 'studentNo' },
+    { label: '年级', prop: 'grade' },
+    { label: '班级', prop: 'className' },
+    { label: '性别', prop: 'gender' },
+    { label: '邮箱', prop: 'email' },
+    { label: '电话', prop: 'phone' },
+    { label: '导师', prop: 'teacherName' },
+    { label: '导师电话', prop: 'teacherPhone' },
+  ]
+
+  // 转换数据格式
+  const wsData = [
+    headers.map((header) => header.label),
+    ...data.map((item) =>
+      headers.map((header) => {
+        return item[header.prop] ?? ''
+      }),
+    ),
+  ]
+
+  // 创建工作表
+  const ws = XLSX.utils.aoa_to_sheet(wsData)
+
+  // 创建工作簿
+  const wb = XLSX.utils.book_new()
+  XLSX.utils.book_append_sheet(wb, ws, '成员数据')
+
+  // 生成Excel文件并下载
+  const excelBuffer = XLSX.write(wb, { bookType: 'xlsx', type: 'array' })
+  const blob = new Blob([excelBuffer], { type: 'application/octet-stream' })
+  saveAs(blob, `${fileName}.xlsx`)
 }

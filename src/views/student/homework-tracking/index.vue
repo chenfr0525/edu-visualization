@@ -128,7 +128,7 @@ const loadCourseOptions = async () => {
 // 加载统计数据
 const loadStats = async () => {
   try {
-    const res = await homeworkApi.getStats(userInfo.value.id)
+    const res = await homeworkApi.getStats(userInfo.value?.id)
     if (res && res.data) {
       statsData.value = res.data
     }
@@ -509,8 +509,8 @@ onMounted(async () => {
                       {{ index + 1 }}.{{ weakness }}
                     </p>
                   </h4>
-                  <h4>建议<p v-for="(actionItem, index) in currentHomework.aiSuggestion.actionItems" :key="index">
-                      {{ currentHomework.aiSuggestion.actionItems?.length > 1 ? index + 1 + "." : "" }}{{ actionItem }}
+                  <h4>建议<p v-for="(suggestion, index) in currentHomework.aiSuggestion.suggestions" :key="index">
+                      {{ index + 1 }}.{{ suggestion }}
                     </p>
                   </h4>
                 </div>

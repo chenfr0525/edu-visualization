@@ -1,5 +1,5 @@
 <script setup>
-import { computed, watch } from 'vue'
+import { computed, onMounted, watch, ref } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useAuthStore } from '@/stores/index.js'
 import { useAppStore } from '@/stores/index.js'
@@ -17,8 +17,9 @@ import {
   MessageBox
 } from '@element-plus/icons-vue'
 import { ElMessageBox } from 'element-plus'
+import { authApi } from '@/api'
 
-const props=defineProps({
+const props = defineProps({
   menuList: {
     type: Array,
     default: () => [],
@@ -29,7 +30,17 @@ const router = useRouter()
 const route = useRoute()
 const authStore = useAuthStore()
 const appStore = useAppStore()
-
+const userInfo = ref(null)
+const loadUserInfo = async () => {
+  try {
+    const res = await authApi.getUserInfo()
+    if (res && res.data) {
+      userInfo.value = res.data?.user
+    }
+  } catch (error) {
+    console.error('加载用户信息失败:', error)
+  }
+}
 const handleLogout = () => {
   ElMessageBox.confirm(
     '确定要退出吗？',
@@ -61,6 +72,9 @@ const activeMenu = computed(() => route.path)
 
 const isCollapse = computed(() => !appStore.sidebarOpened)
 const asideWidth = computed(() => (appStore.isMobile ? '0px' : isCollapse.value ? '64px' : '220px'))
+onMounted(async () => {
+  await loadUserInfo()
+})
 </script>
 
 <template>
@@ -97,7 +111,7 @@ const asideWidth = computed(() => (appStore.isMobile ? '0px' : isCollapse.value 
           <el-dropdown>
             <span class="user-info">
               <el-avatar :size="32" icon="UserFilled" />
-              <span class="username" v-if="!appStore.isMobile">{{ authStore.user?.name }} (教师)</span>
+              <span class="username" v-if="!appStore.isMobile">{{ userInfo?.user?.name }} (教师)</span>
               <el-icon>
                 <ArrowDown />
               </el-icon>

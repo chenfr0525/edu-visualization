@@ -428,12 +428,6 @@ onMounted(async () => {
 
     <div class="container-header">
       <el-form inline label-width="80" :model="searchModel" class="select-box">
-        <el-form-item label="状态" prop="status">
-          <el-select size="large" placeholder="选择状态" style="width: 140px" v-model="searchModel.status" clearable
-            @change="handleSearch">
-            <el-option v-for="item in statusOptions" :key="item.value" :label="item.label" :value="item.value" />
-          </el-select>
-        </el-form-item>
         <el-form-item label="课程" prop="course">
           <el-select size="large" placeholder="选择课程" style="width: 180px" v-model="searchModel.courseId" clearable
             @change="handleSearch">
@@ -532,7 +526,7 @@ onMounted(async () => {
             <el-card shadow="hover" header="🤖 AI 学习建议">
               <div class="ai-suggestions">
                 <div class="ai-content" v-if="currentExam.aiSuggestion">
-                  <h4>总结:<p>{{ currentExam.aiSuggestion.summary }}</p>
+                  <h4>总结<p>{{ currentExam.aiSuggestion.summary }}</p>
                   </h4>
                   <h4>优势<p v-for="(strength, index) in currentExam.aiSuggestion.strengths" :key="index">
                       {{ currentExam.aiSuggestion.strengths?.length > 1 ? index + 1 + "." : "" }}{{ strength }}
@@ -542,9 +536,11 @@ onMounted(async () => {
                       {{ currentExam.aiSuggestion.weaknesses?.length > 1 ? index + 1 + "." : "" }}{{ weakness }}
                     </p>
                   </h4>
-                  <h4>建议<p v-for="(actionItem, index) in currentExam.aiSuggestion.actionItems" :key="index">
-                      {{ currentExam.aiSuggestion.actionItems?.length > 1 ? index + 1 + "." : "" }}{{ actionItem }}
-                    </p>
+                  <h4>建议<div style="display: flex;flex-direction: column;">
+                      <p v-for="(suggestion, index) in currentExam.aiSuggestion.suggestions" :key="index">
+                        {{ currentExam.aiSuggestion.suggestions?.length > 1 ? index + 1 + "." : "" }}{{ suggestion }}
+                      </p>
+                    </div>
                   </h4>
                 </div>
                 <div class="ai-content" v-else>
@@ -554,7 +550,7 @@ onMounted(async () => {
             </el-card>
           </el-col>
         </el-row>
-        <el-row style="margin-top: 20px;" v-if="currentExam.knowledgePointAnalysis.length > 0">
+        <el-row style="margin-top: 20px;" v-if="currentExam.knowledgePointAnalysis?.length > 0">
           <el-col :span="24">
             <el-card shadow="always">
               <EChart :options="radarOption" height="400px" />

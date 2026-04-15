@@ -3,12 +3,12 @@ import { ref, reactive, computed, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import * as echarts from 'echarts'
 import InfoItem from './component/info-item.vue'
-import { exportToPDF } from '@/utils/export'
+import { exportToPDF, formatExamDate } from '@/utils/export'
 import StatCard from './component/stat-card.vue'
 import { tExamApi, tDashboardApi } from '@/api/index.js'
 import { useAuthStore } from '@/stores/index.js'
+import StatsCard from '../user-manage/component/stats-card.vue'
 
-const authStore = useAuthStore()
 const loading = ref(false)
 const saving = ref(false)
 const analysisContentRef = ref(null)
@@ -16,8 +16,24 @@ const analysisContentRef = ref(null)
 // 筛选条件
 const searchModel = ref({
   classId: '',
-  examType: '',
+  courseId: "",
   keyword: ''
+})
+
+const statistics = ref({
+  totalExamCount: 0,
+  overallAvgScore: 0,
+  overallPassRate: 0,
+  overallExcellentRate: 0,
+})
+
+const scoreListSearch = ref(null)
+const scoreList = ref([])
+const scoreMoreData = ref(null)
+const scoreListPage = ref({
+  page: 1,
+  pageSize: 10,
+  total: 0
 })
 
 // 分页
@@ -30,15 +46,17 @@ const pagination = reactive({
 // 列表数据
 const examList = ref([])
 const classList = ref([])
+const courseList = ref([])
 
 const examDialogVisible = ref(false)
 const scoreEntryVisible = ref(false)
 const analysisDialogVisible = ref(false)
-const compareDialogVisible = ref(false)
+const drawerVisible = ref(false)
+const analysisDetailData = ref(null)
 const viewScoresDialogVisible = ref(false)
 
 const examFormRef = ref(null)
-const examForm = reactive({
+const examForm = ref({
   id: null,
   name: '',
   type: '',
@@ -49,7 +67,7 @@ const examForm = reactive({
   description: ''
 })
 
-const dialogTitle = computed(() => examForm.id ? '编辑考试' : '创建考试')
+const dialogTitle = computed(() => examForm.value.id ? '编辑考试' : '创建考试')
 
 const examRules = {
   name: [{ required: true, message: '请输入考试名称', trigger: 'blur' }],
@@ -60,7 +78,6 @@ const examRules = {
 }
 
 const currentExam = ref(null)
-const scoreList = ref([])
 const enteredCount = computed(() => {
   return scoreList.value.filter(s => s.score !== null && s.score !== '').length
 })
@@ -73,21 +90,14 @@ const entryProgressColor = computed(() => {
   return '#e6a23c'
 })
 
-const analysisData = ref(null)
-
-const compareExamId = ref(null)
-const compareClassIds = ref([])
-const compareData = ref([])
-
 // 图表实例
 let histogramChart = null
 let pieChart = null
 let rangeBarChart = null
-let compareChart = null
 
 const fetchClassList = async () => {
   try {
-    const res = await tDashboardApi.getClassList(authStore.userId)
+    const res = await tDashboardApi.getClassList()
     if (res && res.data) {
       classList.value = res.data
     }
@@ -96,14 +106,37 @@ const fetchClassList = async () => {
   }
 }
 
+const fetchCourseList = async () => {
+  try {
+    const res = await tDashboardApi.getCourseList()
+    if (res && res.data) {
+      courseList.value = res.data
+    }
+  } catch (error) {
+    console.error('获取课程列表失败:', error)
+  }
+}
+
+// 获取统计数据
+const fetchStatistics = async () => {
+  try {
+    const res = await tExamApi.getExamStatistics(searchModel.value.classId, searchModel.value.courseId)
+    if (res && res.data) {
+      statistics.value = res.data
+    }
+  } catch (error) {
+    console.error('获取统计数据失败:', error)
+  }
+}
+
 const fetchExamList = async () => {
   loading.value = true
   try {
     const res = await tExamApi.getExamLists({
-      page: pagination.page,
+      page: pagination.page - 1,
       pageSize: pagination.pageSize,
       classId: searchModel.value.classId,
-      type: searchModel.value.examType,
+      courseId: searchModel.value.courseId,
       keyword: searchModel.value.keyword
     })
     if (res && res.data) {
@@ -115,6 +148,24 @@ const fetchExamList = async () => {
     ElMessage.error('获取考试列表失败')
   } finally {
     loading.value = false
+  }
+}
+
+
+const loadExamScoreData = async () => {
+  const res = await tExamApi.getScoreList({
+    page: scoreListPage.value.page - 1,
+    size: scoreListPage.value.pageSize,
+    examId: currentExam.value?.id,
+    classId: currentExam.value?.classId,
+    courseId: currentExam.value?.courseId,
+    keyword: scoreListSearch.value
+  })
+  if (res?.data) {
+    scoreMoreData.value = { ...res.data, ...currentExam.value }
+    console.log('scoreList', scoreMoreData.value)
+    scoreList.value = res.data?.records
+    scoreListPage.value.total = res.data?.total || 0
   }
 }
 
@@ -179,37 +230,27 @@ const fetchExamAnalysis = async (examId) => {
   return null
 }
 
-const fetchCompareData = async (examId, classIds) => {
-  const res = await tExamApi.getExamCompare(examId, classIds)
-  if (res && res.data) {
-    return res.data
-  }
-  return []
-}
-
 const getExamTypeTag = (type) => {
-  const map = { midterm: 'primary', final: 'danger', monthly: 'warning', mock: 'info', unit: 'success' }
+  const map = { "MIDTERM": 'primary', "FINAL": 'danger', "MONTHLY": 'warning', "MOCK": 'info', "UNIT": 'success' }
   return map[type] || 'info'
 }
 
-const getExamTypeText = (type) => {
-  const map = { midterm: '期中', final: '期末', monthly: '月考', mock: '模拟考', unit: '单元测试' }
-  return map[type] || type
-}
+
 
 const getExamTypeColor = (type) => {
-  const map = { midterm: '#409eff', final: '#f56c6c', monthly: '#e6a23c', mock: '#909399', unit: '#67c23a' }
+  const map = { "MIDTERM": '#409eff', "FINAL": '#f56c6c', "MONTHLY": '#e6a23c', "MOCK": '#909399', "UNIT": '#67c23a' }
   return map[type] || '#909399'
 }
 
 const getStatusType = (status) => {
-  const map = { upcoming: 'info', ongoing: 'warning', completed: 'success' }
+  const map = { "UPCOMING": 'info', "ONGOING": 'warning', 'COMPLETED': 'success' }
   return map[status] || 'info'
 }
 
-const getStatusText = (status) => {
-  const map = { upcoming: '待开始', ongoing: '录入中', completed: '已完成' }
-  return map[status] || status
+const progressColor = (rate) => {
+  if (rate >= 80) return '#67C23A'
+  if (rate >= 60) return '#E6A23C'
+  return '#F56C6C'
 }
 
 const getScoreClass = (score, fullScore) => {
@@ -244,6 +285,7 @@ const handleSearch = () => {
 const handleFilterChange = () => {
   pagination.page = 1
   fetchExamList()
+  fetchStatistics()
 }
 
 const handleSizeChange = (size) => {
@@ -256,50 +298,66 @@ const handlePageChange = (page) => {
   fetchExamList()
 }
 
+const handleScoreSizeChange = (size) => {
+  scoreListPage.pageSize = size
+  loadExamScoreData()
+}
+
+const handleScorePageChange = (page) => {
+  scoreListPage.pageSize = size
+    .page = page
+  loadExamScoreData()
+}
+
 const showCreateDialog = () => {
   resetExamForm()
   examDialogVisible.value = true
 }
 
 const editExam = (exam) => {
-  Object.assign(examForm, {
+  examForm.value = {
     id: exam.id,
     name: exam.name,
     type: exam.type,
     classId: exam.classId,
-    examDate: exam.examDate,
+    courseId: exam.courseId,
+    examTime: formatExamDate(exam.examDate),
+    duration: 120,
     fullScore: exam.fullScore || 100,
     passScore: exam.passScore || 60,
     description: exam.description || ''
-  })
+  }
   examDialogVisible.value = true
 }
 
 const resetExamForm = () => {
-  Object.assign(examForm, {
+  examForm.value = {
     id: null,
     name: '',
     type: '',
     classId: '',
+    courseId: '',
     examDate: '',
     fullScore: 100,
     passScore: 60,
-    description: ''
-  })
+    description: '',
+    duration: 120
+  }
   examFormRef.value?.resetFields()
 }
 
 const submitExam = async () => {
   await examFormRef.value?.validate()
   let success
-  if (examForm.id) {
-    success = await updateExam(examForm)
+  if (examForm.value.id) {
+    success = await updateExam(examForm.value)
   } else {
-    success = await createExam(examForm)
+    success = await createExam(examForm.value)
   }
   if (success) {
     examDialogVisible.value = false
     await fetchExamList()
+    await fetchStatistics()
   }
 }
 
@@ -311,8 +369,8 @@ const handleExamCommand = (command, exam) => {
     case 'viewScores':
       viewExamScores(exam)
       break
-    case 'compare':
-      openCompareDialog(exam)
+    case 'viewExamAnalysis':
+      viewExamDetail(exam)
       break
     case 'export':
       exportScores(exam)
@@ -326,8 +384,9 @@ const handleExamCommand = (command, exam) => {
         const success = await deleteExam(exam.id)
         if (success) {
           await fetchExamList()
+          await fetchStatistics()
         }
-      }).catch(() => {})
+      }).catch(() => { })
       break
   }
 }
@@ -338,11 +397,6 @@ const enterScores = async (exam) => {
   scoreList.value = res.list
   scoreEntryVisible.value = true
 }
-
-const continueScoreEntry = async (exam) => {
-  await enterScores(exam)
-}
-
 const resetScoreForm = () => {
   scoreList.value = []
   currentExam.value = null
@@ -363,6 +417,7 @@ const saveScores = async () => {
       // 更新当前考试状态
       currentExam.value.status = 'ongoing'
       await fetchExamList()
+      await fetchStatistics()
     }
   } finally {
     saving.value = false
@@ -388,166 +443,144 @@ const exportScoreTemplate = () => {
 
 const viewExamScores = async (exam) => {
   currentExam.value = exam
-  const res = await fetchScores(exam.id)
-  scoreList.value = res.list
+  await loadExamScoreData()
   viewScoresDialogVisible.value = true
 }
 
-const viewAnalysis = async (exam) => {
-  const data = await fetchExamAnalysis(exam.id)
-  analysisData.value = data
-  analysisDialogVisible.value = true
-  setTimeout(() => {
-    initAnalysisCharts()
-  }, 100)
-}
 
 const initAnalysisCharts = () => {
-  if (!analysisData.value) return
-
+  if (!analysisDetailData.value) return
   // 成绩分布直方图
   const histogramDom = document.getElementById('scoreHistogramChart')
-  if (histogramDom && analysisData.value.scoreDistribution?.length) {
+  if (histogramDom && analysisDetailData.value?.scoreDistribution) {
     if (histogramChart) histogramChart.dispose()
     histogramChart = echarts.init(histogramDom)
     histogramChart.setOption({
+      title: { text: '成绩分布', left: 'center' },
       tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
-      xAxis: { type: 'category', data: analysisData.value.scoreDistribution.map(d => d.range) },
+      xAxis: {
+        type: 'category',
+        data: ['优秀(≥90)', '良好(80-89)', '中等(70-79)', '及格(60-69)', '不及格(<60)'],
+        axisLabel: { rotate: 0 }
+      },
       yAxis: { type: 'value', name: '人数' },
       series: [{
         type: 'bar',
-        data: analysisData.value.scoreDistribution.map(d => d.count),
-        itemStyle: { borderRadius: [8, 8, 0, 0], color: '#1d4e7c' },
+        data: [
+          analysisDetailData.value?.scoreDistribution.excellentCount,
+          analysisDetailData.value?.scoreDistribution.goodCount,
+          analysisDetailData.value?.scoreDistribution.mediumCount,
+          analysisDetailData.value?.scoreDistribution.passCount,
+          analysisDetailData.value?.scoreDistribution.failCount
+        ],
+        itemStyle: {
+          borderRadius: [8, 8, 0, 0],
+          color: (params) => {
+            const colors = ['#67c23a', '#409eff', '#e6a23c', '#f56c6c', '#f56c6c']
+            return colors[params.dataIndex]
+          }
+        },
         label: { show: true, position: 'top' }
       }]
     })
   }
 
-  // 分数段占比饼图
+  // 成绩仪表盘（环形图）
   const pieDom = document.getElementById('scorePieChart')
-  if (pieDom && analysisData.value.gradeDistribution?.length) {
+  if (pieDom && analysisDetailData.value?.stats) {
     if (pieChart) pieChart.dispose()
     pieChart = echarts.init(pieDom)
     pieChart.setOption({
-      tooltip: { trigger: 'item' },
-      legend: { orient: 'vertical', left: 'left' },
-      series: [{
-        type: 'pie',
-        radius: '55%',
-        data: analysisData.value.gradeDistribution.map(g => ({
-          name: g.name,
-          value: g.count,
-          itemStyle: { color: g.color }
-        })),
-        label: { show: true, formatter: '{b}: {d}%' }
-      }]
+      series: [
+        {
+          name: '平均分',
+          type: 'gauge',
+          center: ['25%', '50%'],
+          radius: '70%',
+          min: 0,
+          max: 100,
+          detail: { formatter: '{value}分' },
+          data: [{ value: analysisDetailData.value?.stats.avgScore, name: '平均分' }],
+          axisLabel: { show: false }
+        },
+        {
+          name: '及格率',
+          type: 'gauge',
+          center: ['75%', '50%'],
+          radius: '70%',
+          min: 0,
+          max: 100,
+          detail: { formatter: '{value}%' },
+          data: [{ value: analysisDetailData.value?.stats.passRate, name: '及格率' }],
+          axisLabel: { show: false }
+        }
+      ]
     })
   }
 
-   // 分数段条形图
+  // 知识点掌握雷达图
   const rangeBarDom = document.getElementById('scoreRangeBarChart')
-  if (rangeBarDom && analysisData.value.scoreDistribution?.length) {
+  if (rangeBarDom && analysisDetailData.value?.knowledgePointAnalysis) {
     if (rangeBarChart) rangeBarChart.dispose()
     rangeBarChart = echarts.init(rangeBarDom)
     rangeBarChart.setOption({
-      tooltip: { trigger: 'axis' },
-      xAxis: { type: 'category', data: analysisData.value.scoreDistribution.map(d => d.range) },
-      yAxis: { type: 'value', name: '人数' },
+      title: { text: '知识点掌握雷达图', left: 'center' },
+      tooltip: { trigger: 'item' },
+      radar: {
+        indicator: analysisDetailData.value?.knowledgePointAnalysis.map(kp => ({
+          name: kp.knowledgePointName,
+          max: 100
+        })),
+        center: ['50%', '50%'],
+        radius: '65%',
+        name: { textStyle: { fontSize: 10, color: '#406e96' } }
+      },
       series: [{
-        type: 'bar',
-        data: analysisData.value.scoreDistribution.map(d => d.count),
-        itemStyle: {
-          borderRadius: [8, 8, 0, 0],
-          color: (params) => {
-            const colors = ['#f56c6c', '#e6a23c', '#409eff', '#67c23a', '#67c23a']
-            return colors[params.dataIndex] || '#409eff'
-          }
-        }
+        type: 'radar',
+        data: [{ value: analysisDetailData.value?.knowledgePointAnalysis.map(kp => kp.classAvgRate), name: '班级平均得分率' }],
+        areaStyle: { color: 'rgba(64, 158, 255, 0.2)' },
+        lineStyle: { color: '#409eff', width: 2 },
+        itemStyle: { color: '#409eff' }
       }]
     })
   }
-    // 班级对比图
-  if (analysisData.value.classCompare?.length) {
-    const compareDom = document.getElementById('classCompareChart')
-    if (compareDom) {
-      if (compareChart) compareChart.dispose()
-      compareChart = echarts.init(compareDom)
-      compareChart.setOption({
-        tooltip: { trigger: 'axis' },
-        legend: { data: ['平均分', '及格率(%)', '优秀率(%)'] },
-        xAxis: { type: 'category', data: analysisData.value.classCompare.map(c => c.className) },
-        yAxis: { type: 'value', name: '分数/百分比' },
-        series: [
-          { name: '平均分', type: 'line', data: analysisData.value.classCompare.map(c => c.avgScore), smooth: true },
-          { name: '及格率(%)', type: 'bar', data: analysisData.value.classCompare.map(c => c.passRate) },
-          { name: '优秀率(%)', type: 'bar', data: analysisData.value.classCompare.map(c => c.excellentRate) }
-        ]
-      })
-    }
-  }
 }
-const openCompareDialog = async (exam) => {
-  compareExamId.value = exam.id
-  compareClassIds.value = [exam.classId]
-  await loadCompareData()
-  compareDialogVisible.value = true
+const viewExamDetail = async (exam) => {
+  await loadDetailData(exam?.id)
+  drawerVisible.value = true
 }
 
-const loadCompareData = async () => {
-  if (!compareExamId.value) return
-  const data = await fetchCompareData(compareExamId.value, compareClassIds.value)
-  compareData.value = data
+const loadDetailData = async (examId) => {
+  const res = await tExamApi.getExamAnalysis(examId)
+  analysisDetailData.value = res?.data || {}
   setTimeout(() => {
-    initCompareChart()
+    initAnalysisCharts()
   }, 100)
-}
-
-const initCompareChart = () => {
-  const compareDom = document.getElementById('compareChart')
-  if (!compareDom) return
-  if (compareChart) compareChart.dispose()
-  compareChart = echarts.init(compareDom)
-  compareChart.setOption({
-    tooltip: { trigger: 'axis' },
-    legend: { data: ['平均分', '最高分', '及格率(%)'] },
-    xAxis: { type: 'category', data: compareData.value.map(c => c.className) },
-    yAxis: { type: 'value', name: '分数/百分比' },
-    series: [
-      { name: '平均分', type: 'bar', data: compareData.value.map(c => c.avgScore), itemStyle: { color: '#409eff' } },
-      { name: '最高分', type: 'bar', data: compareData.value.map(c => c.highestScore), itemStyle: { color: '#e6a23c' } },
-      { name: '及格率(%)', type: 'line', data: compareData.value.map(c => c.passRate), smooth: true, lineStyle: { color: '#67c23a' } }
-    ]
-  })
 }
 
 const exportScores = (exam) => {
   window.open(`/api/teacher/exam/${exam.id}/export`, '_blank')
 }
 
+const importScore = (exam) => {
+  console.log('importScore')
+}
+
 const exportExamsData = () => {
   const params = {
     classId: searchModel.value.classId || '',
+    courseId: searchModel.value.courseId || '',
     type: searchModel.value.examType || '',
     keyword: searchModel.value.keyword || ''
   }
   tExamApi.exportExamsData(params)
 }
 
-const exportAnalysisReport = () => {
-  if (analysisData.value) {
-    exportToPDF(analysisContentRef.value, `${analysisData.value.examName}_成绩分析报告`)
-  }
-}
-
-const exportScoreSheet = () => {
-  if (analysisData.value) {
-    window.open(`/api/teacher/exam/${analysisData.value.examId}/score-sheet`, '_blank')
-  }
-}
-
 onMounted(async () => {
   await fetchClassList()
+  await fetchCourseList()
   await fetchExamList()
+  await fetchStatistics()
 })
 </script>
 
@@ -559,13 +592,9 @@ onMounted(async () => {
           @change="handleFilterChange">
           <el-option v-for="cls in classList" :key="cls.id" :label="cls.name" :value="cls.id" />
         </el-select>
-        <el-select size="large" v-model="searchModel.examType" placeholder="考试类型" clearable style="width: 120px"
+        <el-select size="large" v-model="searchModel.courseId" placeholder="按课程筛选" clearable style="width: 150px"
           @change="handleFilterChange">
-          <el-option label="期中考试" value="midterm" />
-          <el-option label="期末考试" value="final" />
-          <el-option label="月考" value="monthly" />
-          <el-option label="模拟考" value="mock" />
-          <el-option label="单元测试" value="unit" />
+          <el-option v-for="cls in courseList" :key="cls.id" :label="cls.name" :value="cls.id" />
         </el-select>
         <el-input v-model="searchModel.keyword" placeholder="搜索考试名称" prefix-icon="Search" clearable style="width: 200px"
           @clear="handleSearch" @keyup.enter="handleSearch" />
@@ -580,6 +609,22 @@ onMounted(async () => {
       </div>
     </div>
 
+    <!-- 统计卡片 -->
+    <el-row :gutter="20" :style="{ marginBottom: '20px' }">
+      <el-col :span="6">
+        <stats-card type="total" icon="fa-users" title="考试总数" :value="statistics.totalExamCount" />
+      </el-col>
+      <el-col :span="6">
+        <StatsCard type="active" icon="fa-user-check" title="平均分" :value="statistics.overallAvgScore" />
+      </el-col>
+      <el-col :span="6">
+        <StatsCard type="frozen" icon="fa-user-lock" title="及格率" :value="statistics.overallPassRate" />
+      </el-col>
+      <el-col :span="6">
+        <StatsCard type="pending" icon="fa-user-clock" title="优秀率" :value="statistics.overallExcellentRate" />
+      </el-col>
+    </el-row>
+
     <div class="exam-table-container">
       <el-table :data="examList" v-loading="loading" stripe border style="width: 100%">
         <el-table-column prop="name" label="考试名称" min-width="180">
@@ -593,13 +638,19 @@ onMounted(async () => {
         <el-table-column prop="type" label="类型" width="100">
           <template #default="{ row }">
             <el-tag :type="getExamTypeTag(row.type)" size="small">
-              {{ getExamTypeText(row.type) }}
+              {{ row.typeText }}
             </el-tag>
           </template>
         </el-table-column>
         <el-table-column prop="className" label="班级" width="100" />
-        <el-table-column prop="examDate" label="考试日期" width="110" sortable />
-        <el-table-column prop="totalStudents" label="参考人数" width="90" align="center" />
+        <el-table-column prop="courseName" label="课程" width="100" />
+        <el-table-column prop="examDate" label="考试日期" width="110">
+          <template #default="{ row }">
+            {{ row.examDate.slice(0, 3).join('-') }}
+          </template>
+        </el-table-column>
+        <el-table-column prop="fullScore" label="满分" width="90" align="center" />
+        <el-table-column prop="studentCount" label="参与人数" width="90" align="center" />
         <el-table-column prop="avgScore" label="平均分" width="80" sortable>
           <template #default="{ row }">
             <span :class="getScoreClass(row.avgScore, row.fullScore)">
@@ -622,22 +673,14 @@ onMounted(async () => {
         <el-table-column prop="status" label="状态" width="90">
           <template #default="{ row }">
             <el-tag :type="getStatusType(row.status)" size="small">
-              {{ getStatusText(row.status) }}
+              {{ row.statusText }}
             </el-tag>
           </template>
         </el-table-column>
         <el-table-column label="操作" width="200" fixed="right">
           <template #default="{ row }">
-            <el-button v-if="row.status === 'upcoming'" link type="primary" size="small" @click.stop="enterScores(row)">
+            <el-button link type="primary" size="small" @click.stop="enterScores(row)">
               <i class="fas fa-edit"></i> 录入成绩
-            </el-button>
-            <el-button v-if="row.status === 'ongoing'" link type="primary" size="small"
-              @click.stop="continueScoreEntry(row)">
-              <i class="fas fa-pen"></i> 继续录入
-            </el-button>
-            <el-button v-if="row.status === 'completed'" link type="primary" size="small"
-              @click.stop="viewAnalysis(row)">
-              <i class="fas fa-chart-line"></i> 成绩分析
             </el-button>
             <el-dropdown @click.stop @command="(cmd) => handleExamCommand(cmd, row)">
               <el-button link size="small">
@@ -647,7 +690,7 @@ onMounted(async () => {
                 <el-dropdown-menu>
                   <el-dropdown-item command="edit">编辑考试</el-dropdown-item>
                   <el-dropdown-item command="viewScores">查看成绩单</el-dropdown-item>
-                  <el-dropdown-item command="compare">班级对比</el-dropdown-item>
+                  <el-dropdown-item command="viewExamAnalysis">查看考试详情</el-dropdown-item>
                   <el-dropdown-item command="export">导出成绩</el-dropdown-item>
                   <el-dropdown-item command="delete" divided>删除</el-dropdown-item>
                 </el-dropdown-menu>
@@ -674,11 +717,11 @@ onMounted(async () => {
         </el-form-item>
         <el-form-item label="考试类型" prop="type">
           <el-select v-model="examForm.type" placeholder="请选择考试类型" style="width: 100%">
-            <el-option label="期中考试" value="midterm" />
-            <el-option label="期末考试" value="final" />
-            <el-option label="月考" value="monthly" />
-            <el-option label="模拟考" value="mock" />
-            <el-option label="单元测试" value="unit" />
+            <el-option label="期中考试" value="MIDTERM" />
+            <el-option label="期末考试" value="FINAL" />
+            <el-option label="月考" value="MONTHLY" />
+            <el-option label="模拟考" value="MOCK" />
+            <el-option label="单元测试" value="UNIT" />
           </el-select>
         </el-form-item>
         <el-form-item label="所属班级" prop="classId">
@@ -686,8 +729,14 @@ onMounted(async () => {
             <el-option v-for="cls in classList" :key="cls.id" :label="cls.name" :value="cls.id" />
           </el-select>
         </el-form-item>
+        <el-form-item label="课程" prop="classId">
+          <el-select v-model="examForm.courseId" placeholder="请选择课程" style="width: 100%">
+            <el-option v-for="cls in courseList" :key="cls.id" :label="cls.name" :value="cls.id" />
+          </el-select>
+        </el-form-item>
         <el-form-item label="考试日期" prop="examDate">
-          <el-date-picker v-model="examForm.examDate" type="date" placeholder="选择考试日期" style="width: 100%" />
+          <el-date-picker v-model="examForm.examDate" type="datetime" placeholder="选择考试时间" format="YYYY-MM-DD HH:mm:ss"
+            value-format="YYYY-MM-DDTHH:mm:ss" style="width: 100%" />
         </el-form-item>
         <el-form-item label="满分" prop="fullScore">
           <el-input-number v-model="examForm.fullScore" :min="0" :max="750" :step="10" style="width: 100%" />
@@ -713,7 +762,7 @@ onMounted(async () => {
         <!-- 考试信息 -->
         <div class="exam-info-bar">
           <info-item label="班级：" :value="currentExam?.className" />
-          <info-item label="考试日期：" :value="currentExam?.examDate" />
+          <info-item label="考试日期：" :value="formatExamDate(currentExam?.examDate)" />
           <info-item label="满分：" :value="currentExam?.fullScore" />
           <info-item label="已录入：" :value="`${enteredCount}/${currentExam?.totalStudents}`" />
           <div class="info-actions">
@@ -776,48 +825,100 @@ onMounted(async () => {
     </el-dialog>
 
     <!-- 成绩查看弹窗 -->
-    <el-dialog v-model="viewScoresDialogVisible" :title="`成绩查看 - ${currentExam?.name}`" width="80%"
+    <el-dialog v-model="viewScoresDialogVisible" :title="`成绩查看 - ${scoreMoreData?.name}`" width="80%"
       :style="{ marginTop: '20px' }">
       <div class="score-entry-container">
         <div class="exam-info-bar">
-          <info-item label="班级：" :value="currentExam?.className" />
-          <info-item label="考试日期：" :value="currentExam?.examDate" />
-          <info-item label="满分：" :value="currentExam?.fullScore" />
-          <info-item label="已录入：" :value="`${enteredCount}/${currentExam?.totalStudents}`" />
+          <info-item label="班级：" :value="scoreMoreData?.className" />
+          <info-item label="考试日期：" :value="formatExamDate(scoreMoreData?.examDate)" />
+          <info-item label="满分：" :value="scoreMoreData?.fullScore" />
+          <info-item label="学生人数：" :value="`${scoreMoreData?.studentCount}`" />
         </div>
+        <el-row :gutter="20" :style="{ marginBottom: '20px' }">
+          <el-col :span="6">
+            <stats-card type="total" icon="fa-users" title="平均分" :value="scoreMoreData?.statistics.avgScore" />
+          </el-col>
+          <el-col :span="6">
+            <StatsCard type="active" icon="fa-user-check" title="最高分" :value="scoreMoreData?.statistics.highestScore" />
+          </el-col>
+          <el-col :span="6">
+            <StatsCard type="frozen" icon="fa-user-lock" title="最低分" :value="scoreMoreData?.statistics.lowestScore" />
+          </el-col>
+          <el-col :span="6">
+            <StatsCard type="pending" icon="fa-user-clock" title="及格人数" :value="scoreMoreData?.statistics.passCount" />
+          </el-col>
+        </el-row>
+        <el-input v-model="scoreListSearch" placeholder="搜索学生..." prefix-icon="Search" clearable style="width: 200px"
+          @clear="loadExamScoreData" @keyup.enter="loadExamScoreData" />
         <!-- 成绩查看表格 -->
         <el-table :data="scoreList" stripe border height="500px" style="width: 100%">
+          <el-table-column prop="classRank" label="排名" width="120" sortable />
           <el-table-column prop="studentNo" label="学号" width="120" />
           <el-table-column prop="studentName" label="姓名" width="100" />
-          <el-table-column prop="score" label="成绩" width="150" />
-          <el-table-column prop="rank" label="班级排名" width="100" sortable>
-          </el-table-column>
+          <el-table-column prop="score" label="成绩" width="100" />
           <el-table-column prop="remark" label="备注" min-width="150">
           </el-table-column>
+          <el-table-column prop="scoreTrend" label="趋势" min-width="150">
+            <template #default="{ row }">{{ row?.scoreTrend === 'UP' ? "上升" : row?.scoreTrend === 'STABLE' ? "平稳" : "下降"
+            }}</template>
+          </el-table-column>
         </el-table>
+        <!-- 分页 -->
+        <div class="pagination-wrapper">
+          <el-pagination v-model:current-page="scoreListPage.page" v-model:page-size="scoreListPage.pageSize"
+            :page-sizes="[10, 20, 50]" :total="scoreListPage.total" layout="total, sizes, prev, pager, next"
+            @size-change="handleScoreSizeChange" @current-change="handleScorePageChange" />
+        </div>
       </div>
       <template #footer>
         <el-button @click="viewScoresDialogVisible = false">关闭</el-button>
       </template>
     </el-dialog>
 
-    <!-- 成绩分析弹窗 -->
-    <el-dialog v-model="analysisDialogVisible" title="成绩分析报告" width="900px" :close-on-click-modal="false" fullscreen>
-      <div v-if="analysisData" class="analysis-container" ref="analysisContentRef">
-        <div class="analysis-header">
-          <div class="title-section">
-            <h2>{{ analysisData.examName }}</h2>
-            <p>{{ analysisData.className }} · {{ analysisData.examDate }}</p>
+    <!-- 考试详情图 -->
+    <el-drawer v-model="drawerVisible"
+      :title="`班级成绩分析：${analysisDetailData?.courseName || ''} - ${analysisDetailData?.name || ''}`" direction="rtl"
+      size="1300px" destroy-on-close :close-on-click-modal="true" :close-on-press-escape="true" v-loading="loading">
+      <div class="knowledge-detail" v-if="analysisDetailData?.id">
+        <!-- 掌握度卡片 -->
+        <div class="mastery-card" :class="masteryClass">
+          <div class="mastery-rate">
+            <h3>优秀率</h3>
+            <el-progress type="circle" :percentage="analysisDetailData?.stats?.excellentRate"
+              :color="progressColor(analysisDetailData?.stats?.excellentRate)" :width="120" :stroke-width="12" />
           </div>
-          <div class="stats-cards">
-            <stat-card label="平均分" :value="analysisData.avgScore" />
-            <stat-card label="最高分" :value="analysisData.highestScore" />
-            <stat-card label="最低分" :value="analysisData.lowestScore" />
-            <stat-card label="及格率" :rate="analysisData.passRate" />
-            <stat-card label="优秀率" :rate="analysisData.excellentRate" />
-            <stat-card label="标准差" :rate="analysisData.standardDeviation" />
+          <div class="mastery-rate">
+            <h3>及格率</h3>
+            <el-progress type="circle" :percentage="analysisDetailData?.stats?.passRate"
+              :color="progressColor(analysisDetailData?.stats?.passRate)" :width="120" :stroke-width="12" />
+          </div>
+          <div class="mastery-info">
+            <h3>学生人数</h3>
+            <p class="rate">{{ analysisDetailData?.stats?.totalStudents }}人</p>
           </div>
         </div>
+
+        <el-descriptions :column="2" border style="margin-top: 20px;">
+          <el-descriptions-item label="类型">{{ analysisDetailData?.typeText }}</el-descriptions-item>
+          <el-descriptions-item label="考试时间">{{ formatExamDate(analysisDetailData?.examDate) }}</el-descriptions-item>
+          <el-descriptions-item label="分数">
+            <div>
+              <h4 style="display: flex;align-items: center; height: 20px;">班级平均分：<p>{{ analysisDetailData?.classAvgScore
+                ||
+                '-' }}</p>
+              </h4>
+              <h4 style="display: flex;align-items: center; height: 20px;">最高分:<p>{{ analysisDetailData?.highestScore ||
+                '-'
+                  }}</p>
+              </h4>
+              <h4 style="display: flex;align-items: center; height: 20px;">最低分:<p>{{ analysisDetailData?.lowestScore ||
+                '-'
+                  }}</p>
+              </h4>
+            </div>
+          </el-descriptions-item>
+          <el-descriptions-item label="描述">{{ analysisDetailData?.description || '无' }}</el-descriptions-item>
+        </el-descriptions>
 
         <el-row :gutter="20" style="margin-top: 20px;">
           <el-col :span="12">
@@ -828,111 +929,27 @@ onMounted(async () => {
           </el-col>
           <el-col :span="12">
             <div class="chart-card">
-              <h4>分数段占比饼图</h4>
+              <h4>成绩仪表盘</h4>
               <div id="scorePieChart" style="height: 320px"></div>
             </div>
           </el-col>
         </el-row>
 
-        <el-row style="margin-top: 20px;">
+        <el-row style="margin-top: 20px;" v-if="analysisDetailData.value?.knowledgePointAnalysis?.length > 0">
           <el-col :span="24">
             <div class="chart-card">
-              <h4>分数段人数统计</h4>
+              <h4>知识点掌握雷达图</h4>
               <div id="scoreRangeBarChart" style="height: 280px"></div>
             </div>
           </el-col>
         </el-row>
-
-        <el-row v-if="analysisData.classCompare" style="margin-top: 20px;">
-          <el-col :span="24">
-            <div class="chart-card">
-              <h4>班级成绩对比</h4>
-              <div id="classCompareChart" style="height: 320px"></div>
-            </div>
-          </el-col>
-        </el-row>
-
-        <el-row :gutter="20" style="margin-top: 20px;">
-          <el-col :span="12">
-            <div class="chart-card">
-              <h4>成绩排名 (前10名)</h4>
-              <el-table :data="analysisData.topStudents" stripe size="small">
-                <el-table-column prop="rank" label="排名" width="50" />
-                <el-table-column prop="studentName" label="姓名" width="120" />
-                <el-table-column prop="studentNo" label="学号" width="150" />
-                <el-table-column prop="score" label="成绩" width="100" sortable />
-                <el-table-column prop="improvement" label="进步情况" width="100">
-                  <template #default="{ row }">
-                    <span v-if="row.improvement > 0" class="improve-up">
-                      <i class="fas fa-arrow-up"></i> +{{ row.improvement }}
-                    </span>
-                    <span v-else-if="row.improvement < 0" class="improve-down">
-                      <i class="fas fa-arrow-down"></i> {{ row.improvement }}
-                    </span>
-                    <span v-else class="improve-stable">持平</span>
-                  </template>
-                </el-table-column>
-              </el-table>
-            </div>
-          </el-col>
-          <el-col :span="12">
-            <div class="chart-card">
-              <h4>分数段分析</h4>
-              <div class="grade-bars">
-                <div v-for="grade in analysisData.gradeDistribution" :key="grade.name" class="grade-item">
-                  <div class="grade-name">{{ grade.name }}</div>
-                  <div class="grade-bar-container">
-                    <div class="grade-bar" :style="{ width: grade.percentage + '%', backgroundColor: grade.color }">
-                    </div>
-                    <span class="grade-count">{{ grade.count }}人</span>
-                  </div>
-                  <div class="grade-percent">{{ grade.percentage }}%</div>
-                </div>
-              </div>
-            </div>
-          </el-col>
-        </el-row>
       </div>
-      <template #footer>
-        <el-button @click="analysisDialogVisible = false">关闭</el-button>
-        <el-button type="primary" @click="exportAnalysisReport">
-          <i class="fas fa-file-pdf"></i> 导出分析报告
-        </el-button>
-        <el-button @click="exportScoreSheet">
-          <i class="fas fa-file-excel"></i> 导出成绩单
-        </el-button>
-      </template>
-    </el-dialog>
-
-    <!-- 班级对比弹窗 -->
-    <el-dialog v-model="compareDialogVisible" title="班级成绩对比" width="800px" :style="{ marginTop: '20px' }">
-      <div class="compare-container">
-        <div class="compare-filters">
-          <el-select v-model="compareExamId" placeholder="选择考试" style="width: 200px" @change="loadCompareData">
-            <el-option v-for="exam in examList" :key="exam.id" :label="exam.name" :value="exam.id" />
-          </el-select>
-          <el-select v-model="compareClassIds" multiple placeholder="选择对比班级" style="width: 300px; margin-left: 12px"
-            @change="loadCompareData">
-            <el-option v-for="cls in classList" :key="cls.id" :label="cls.name" :value="cls.id" />
-          </el-select>
-        </div>
-        <div id="compareChart" style="height: 400px; margin-top: 20px"></div>
-        <div class="compare-stats">
-          <el-table :data="compareData" stripe size="small">
-            <el-table-column prop="className" label="班级" width="120" />
-            <el-table-column prop="avgScore" label="平均分" width="100" sortable />
-            <el-table-column prop="highestScore" label="最高分" width="100" />
-            <el-table-column prop="passRate" label="及格率" width="100">
-              <template #default="{ row }">{{ row.passRate }}%</template>
-            </el-table-column>
-            <el-table-column prop="excellentRate" label="优秀率" width="100">
-              <template #default="{ row }">{{ row.excellentRate }}%</template>
-            </el-table-column>
-            <el-table-column prop="rank" label="年级排名" width="100" />
-          </el-table>
-        </div>
+      <!-- 无数据状态 -->
+      <div v-else class="empty-state">
+        <i class="fas fa-database"></i>
+        <p>暂无数据</p>
       </div>
-    </el-dialog>
+    </el-drawer>
   </div>
 </template>
 
@@ -1172,6 +1189,144 @@ onMounted(async () => {
 
   :deep(.form-dialog) {
     padding: 20px 15px 20px 0;
+  }
+
+  .knowledge-detail {
+    padding: 0 20px;
+
+    h4 {
+      font-size: 16px;
+      margin: 20px 0 15px;
+      color: #1f2937;
+
+      i {
+        margin-right: 8px;
+        color: #409EFF;
+      }
+    }
+
+    .mastery-card {
+      display: flex;
+      align-items: center;
+      justify-content: space-around;
+      padding: 30px 20px;
+      border-radius: 16px;
+      background: linear-gradient(135deg, #f5f7fa 0%, #fff 100%);
+
+      &.good {
+        background: linear-gradient(135deg, #e8f5e9 0%, #fff 100%);
+      }
+
+      &.warning {
+        background: linear-gradient(135deg, #fff3e0 0%, #fff 100%);
+      }
+
+      &.poor {
+        background: linear-gradient(135deg, #ffebee 0%, #fff 100%);
+      }
+
+      .mastery-info {
+        text-align: center;
+
+        h3 {
+          font-size: 14px;
+          color: #6b7280;
+          margin-bottom: 10px;
+        }
+
+        .rate {
+          font-size: 32px;
+          font-weight: 700;
+          margin: 10px 0;
+        }
+      }
+    }
+
+    .weak-points {
+      ul {
+        list-style: none;
+        padding: 0;
+
+        li {
+          padding: 12px;
+          background: #fef3c7;
+          border-radius: 8px;
+          margin-bottom: 10px;
+
+          i {
+            margin-right: 10px;
+            color: #f59e0b;
+          }
+        }
+      }
+    }
+
+    .suggestion-content {
+      p {
+        padding: 10px 12px;
+        background: #f0f9ff;
+        border-radius: 8px;
+        margin-bottom: 10px;
+        border-left: 3px solid #409EFF;
+      }
+    }
+
+    .related-resources {
+      .resource-list {
+        .resource-item {
+          display: flex;
+          align-items: center;
+          padding: 12px;
+          border: 1px solid #e5e7eb;
+          border-radius: 12px;
+          margin-bottom: 12px;
+          cursor: pointer;
+          transition: all 0.3s;
+
+          &:hover {
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+            transform: translateX(4px);
+          }
+
+          .resource-icon {
+            width: 40px;
+            height: 40px;
+            background: #409EFF10;
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-right: 12px;
+
+            i {
+              font-size: 20px;
+              color: #409EFF;
+            }
+          }
+
+          .resource-info {
+            flex: 1;
+
+            .resource-title {
+              font-weight: 500;
+              margin-bottom: 4px;
+            }
+
+            .resource-meta {
+              display: flex;
+              flex-wrap: wrap;
+              gap: 8px;
+              font-size: 12px;
+              color: #6b7280;
+            }
+          }
+        }
+      }
+    }
+
+    .learning-trend {
+      margin-bottom: 20px;
+    }
   }
 }
 
