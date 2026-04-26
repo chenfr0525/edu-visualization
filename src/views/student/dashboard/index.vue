@@ -34,56 +34,44 @@ const statsData = computed(() => {
 })
 
 const knowledgeData = computed(() => {
-  return dashboardData.value?.knowledgeRadarData || { 'Vue3 基础': 0, ' Pinia 状态管理': 0, 'Vue Router 路由': 0, 'ECharts 可视化': 0, 'Element Plus 组件': 0, '项目实战能力': 0 }
+  return dashboardData.value?.knowledgeRadarData || {}
 })
 
-const gradeTrendData = computed(() => dashboardData.value?.scoreTrend || [{ examName: '考试一', score: 0, classRank: 0 }])
+const gradeTrendData = computed(() => dashboardData.value?.scoreTrend || [])
 
-const attendanceData = ref([])
-
-// 选项数据
-const semesterOptions = ref([])
-const searchModel = ref({
-  semester: '',
-  course: '',
+// 出勤热力图数据
+const attendanceData = computed(() => {
+  return dashboardData.value?.heatmapData || []
 })
 
-// 加载学期列表
-// const loadSemesterOptions = async () => {
-//   try {
-//     const res = await dashboardApi.getSemesterList(userInfo.value.id)
-//     semesterOptions.value = res.data
-//   } catch (error) {
-//     console.error('加载学期列表失败:', error)
-//     ElMessage.error('加载学期列表失败')
-//   }
-// }
-
-const refreshAiSuggestions = async () => {
-  await dashboardApi.getAISuggestions(userInfo.value.id)
-}
-
+// 加载数据
 const loadData = async () => {
+  if (!userInfo.value?.id) return
   try {
     const res = await dashboardApi.getStudentDashbord(userInfo.value.id)
     dashboardData.value = res.data
+    console.log('Dashboard数据:', dashboardData.value)
   } catch (error) {
     console.error('数据加载失败:', error)
-    ElMessage.error('加载dashboard数据加载失败')
+    ElMessage.error('加载dashboard数据失败')
   }
 }
 
-// 监听学期变化，重新加载课程选项
-watch(() => searchModel.value.semester, async (newSemester, oldSemester) => {
-  if (newSemester && newSemester !== oldSemester) {
-    await refreshData()
+const refreshAiSuggestions = async () => {
+  if (!userInfo.value?.id) return
+  try {
+    await dashboardApi.getAISuggestions(userInfo.value.id)
+    await loadData() // 重新加载数据
+    ElMessage.success('AI建议已刷新')
+  } catch (error) {
+    console.error('刷新AI建议失败:', error)
   }
-})
+}
 
-// 监听课程变化，刷新相关数据
-watch(() => searchModel.value.course, async () => {
-  await refreshData()
-})
+const handleSearch = async () => {
+  await loadData()
+  await refreshAiSuggestions()
+}
 
 // 刷新所有数据
 const refreshData = async () => {
@@ -103,233 +91,105 @@ const refreshData = async () => {
 const radarOption = computed(() => {
   const indicators = Object.keys(knowledgeData.value).map(name => ({ name, max: 100 }));
   const currentData = Object.values(knowledgeData.value);
+
+  if (indicators.length === 0) {
+    return {
+      title: { text: '暂无知识点数据', left: 'center' },
+      graphic: { type: 'text', left: 'center', top: 'center', style: { text: '请先完成作业和考试', fill: '#999' } }
+    }
+  }
+
   return {
-    title: {
-      text: '知识点掌握程度',
-      left: 'center'
-    },
-    tooltip: {
-      trigger: 'item'
-    },
-    legend: {
-      data: ['当前掌握程度'],
-      left: 'left'
-    },
+    title: { text: '知识点掌握程度', left: 'center' },
+    tooltip: { trigger: 'item' },
+    legend: { data: ['当前掌握程度'], left: 'left' },
     radar: {
       indicator: indicators,
       shape: 'circle',
       center: ['50%', '50%'],
       radius: '65%',
-      name: {
-        textStyle: {
-          fontSize: 12
-        }
-      }
+      name: { textStyle: { fontSize: 12 } }
     },
-    series: [
-      {
-        name: '知识点掌握情况',
-        type: 'radar',
-        data: [
-          {
-            value: currentData,
-            name: '当前掌握程度',
-            areaStyle: {
-              color: 'rgba(64, 158, 255, 0.3)'
-            },
-            lineStyle: {
-              color: '#409EFF',
-              width: 2
-            },
-            itemStyle: {
-              color: '#409EFF'
-            }
-          }
-        ]
-      }
-    ]
+    series: [{
+      name: '知识点掌握情况',
+      type: 'radar',
+      data: [{ value: currentData, name: '当前掌握程度', areaStyle: { color: 'rgba(64, 158, 255, 0.3)' }, lineStyle: { color: '#409EFF', width: 2 }, itemStyle: { color: '#409EFF' } }]
+    }]
   }
 })
 
 // 学习成绩趋势折线图数据
 const lineOption = computed(() => {
-
   const scores = gradeTrendData.value.map(item => item.score);
   const exams = gradeTrendData.value.map(item => item.examName);
   const classRank = gradeTrendData.value.map(item => item.classRank);
 
+  if (exams.length === 0) {
+    return {
+      title: { text: '暂无考试成绩', left: 'center' },
+      graphic: { type: 'text', left: 'center', top: 'center', style: { text: '暂无考试数据', fill: '#999' } }
+    }
+  }
+
   return {
-    title: {
-      text: '学习成绩趋势',
-      left: 'center'
-    },
-    tooltip: {
-      trigger: 'axis'
-    },
-    legend: {
-      data: ['我的成绩', '班级排名'],
-      left: 'left'
-    },
-    grid: {
-      left: '3%',
-      right: '4%',
-      bottom: '3%',
-      containLabel: true
-    },
-    xAxis: {
-      type: 'category',
-      data: exams,
-      boundaryGap: false
-    },
-    yAxis: {
-      type: 'value',
-      max: 100,
-      name: '分数'
-    },
+    title: { text: '学习成绩趋势', left: 'center' },
+    tooltip: { trigger: 'axis' },
+    legend: { data: ['我的成绩', '班级排名'], left: 'left' },
+    grid: { left: '3%', right: '4%', bottom: '3%', containLabel: true },
+    xAxis: { type: 'category', data: exams, boundaryGap: false },
+    yAxis: [{ type: 'value', max: 100, name: '分数' }, { type: 'value', name: '排名', position: 'right', inverse: true }],
     series: [
-      {
-        name: '我的成绩',
-        data: scores,
-        type: 'line',
-        smooth: true,
-        symbol: 'circle',
-        symbolSize: 8,
-        lineStyle: {
-          color: '#409EFF',
-          width: 3
-        },
-        areaStyle: {
-          color: 'rgba(64, 158, 255, 0.1)'
-        },
-        markPoint: {
-          data: [
-            { type: 'max', name: '最高分' },
-            { type: 'min', name: '最低分' }
-          ]
-        },
-        markLine: {
-          data: [{ type: 'average', name: '平均值' }]
-        }
-      },
-      {
-        name: '班级排名',
-        data: classRank,
-        type: 'line',
-        smooth: true,
-        symbol: 'diamond',
-        symbolSize: 8,
-        lineStyle: {
-          color: '#67C23A',
-          width: 2,
-          type: 'dashed'
-        }
-      }
+      { name: '我的成绩', data: scores, type: 'line', smooth: true, symbol: 'circle', symbolSize: 8, lineStyle: { color: '#409EFF', width: 3 }, areaStyle: { color: 'rgba(64, 158, 255, 0.1)' } },
+      { name: '班级排名', data: classRank, type: 'line', smooth: true, symbol: 'diamond', symbolSize: 8, lineStyle: { color: '#67C23A', width: 2, type: 'dashed' }, yAxisIndex: 1 }
     ]
   }
 })
 
 // 班级排名仪表盘数据
 const gaugeOption = computed(() => {
-  const percent = statsData.value.latestRank > 0
-    ? Math.round((1 - statsData.value.latestRank / 45) * 100)
-    : 0
+  const totalStudents = 45 // 假设班级总人数，实际可以从接口获取
+  const percent = statsData.value.latestRank > 0 ? Math.round((1 - statsData.value.latestRank / totalStudents) * 100) : 0
 
   return {
-    title: {
-      text: '班级排名位置',
-      left: 'center'
-    },
-    tooltip: {
-      formatter: '{a} <br/>{b} : {c}%'
-    },
-    series: [
-      {
-        name: '排名',
-        type: 'gauge',
-        startAngle: 180,
-        endAngle: 0,
-        min: 0,
-        max: 100,
-        splitNumber: 5,
-        progress: {
-          show: true,
-          width: 18,
-          itemStyle: {
-            color: {
-              type: 'linear',
-              x: 0,
-              y: 0,
-              x2: 1,
-              y2: 0,
-              colorStops: [
-                { offset: 0, color: '#409EFF' },
-                { offset: 1, color: '#67C23A' }
-              ]
-            }
-          }
-        },
-        axisLine: {
-          lineStyle: {
-            width: 18,
-            color: [[1, '#E6E6E6']]
-          }
-        },
-        axisTick: {
-          show: false
-        },
-        splitLine: {
-          show: false
-        },
-        axisLabel: {
-          show: false
-        },
-        pointer: {
-          show: false
-        },
-        detail: {
-          valueAnimation: true,
-          formatter: '{value}%',
-          fontSize: 24,
-          offsetCenter: [0, 20],
-          color: '#1d4e7c'
-        },
-        title: {
-          show: false
-        },
-        data: [
-          {
-            value: percent,
-            name: '击败全班同学'
-          }
-        ]
-      }
-    ]
+    title: { text: '班级排名位置', left: 'center' },
+    tooltip: { formatter: '{a} <br/>{b} : {c}%' },
+    series: [{
+      name: '排名', type: 'gauge', startAngle: 180, endAngle: 0, min: 0, max: 100,
+      progress: { show: true, width: 18, itemStyle: { color: { type: 'linear', x: 0, y: 0, x2: 1, y2: 0, colorStops: [{ offset: 0, color: '#409EFF' }, { offset: 1, color: '#67C23A' }] } } },
+      axisLine: { lineStyle: { width: 18, color: [[1, '#E6E6E6']] } },
+      axisTick: { show: false }, splitLine: { show: false }, axisLabel: { show: false }, pointer: { show: false },
+      detail: { valueAnimation: true, formatter: '{value}%', fontSize: 24, offsetCenter: [0, 20], color: '#1d4e7c' },
+      title: { show: false },
+      data: [{ value: percent, name: '击败全班同学' }]
+    }]
   }
 })
 
 // 出勤热力图配置
 const heatmapOption = computed(() => {
+  if (!attendanceData.value || attendanceData.value.length === 0) {
+    return {
+      title: { top: 30, left: 'center', text: '暂无出勤数据' },
+      graphic: { type: 'text', left: 'center', top: 'center', style: { text: '暂无活动记录', fill: '#999' } }
+    }
+  }
+
+  // 计算过去365天的起始和结束日期（具体日期范围，而不是年份）
+  const endDate = new Date()
+  const startDate = new Date()
+  startDate.setDate(startDate.getDate() - 364)
+
+  const startStr = startDate.toISOString().split('T')[0]  // 格式: 2025-04-27
+  const endStr = endDate.toISOString().split('T')[0]      // 格式: 2026-04-26
+
+  // 使用具体的日期范围
+  const range = [startStr, endStr]
+
   return {
-    title: {
-      top: 30,
-      left: 'center',
-      text: '学生年度出勤热力图'
-    },
-    tooltip: {
-      formatter: (params) => {
-        if (params && params.value) {
-          return `${params.value[0]}: ${params.value[1]}% 出勤率`
-        }
-        return ''
-      }
-    },
+    title: { top: 30, left: 'center', text: '学生年度出勤热力图' },
+    tooltip: { formatter: (params) => { if (params && params.value) { return `${params.value[0]}: ${params.value[1]}% 出勤率` } return '' } },
     visualMap: {
-      min: 0,
-      max: 100,
-      type: 'piecewise',
-      orient: 'horizontal',
-      left: 'center',
-      top: 65,
+      min: 0, max: 100, type: 'piecewise', orient: 'horizontal', left: 'center', top: 65,
       pieces: [
         { min: 95, label: '全勤', color: '#67C23A' },
         { min: 85, max: 95, label: '良好', color: '#409EFF' },
@@ -338,29 +198,14 @@ const heatmapOption = computed(() => {
       ]
     },
     calendar: {
-      top: 120,
-      left: 30,
-      right: 30,
-      cellSize: ['auto', 13],
-      range: '2025',
-      itemStyle: {
-        borderWidth: 0.5,
-        borderColor: '#ddd'
-      },
-      yearLabel: { show: false },
-      dayLabel: {
-        firstDay: 1,
-        nameMap: 'cn'
-      },
-      monthLabel: {
-        nameMap: 'cn'
-      }
+      top: 120, left: 30, right: 30, cellSize: ['auto', 13],
+      range: range,  // 使用具体日期范围 ['2025-04-27', '2026-04-26']
+      itemStyle: { borderWidth: 0.5, borderColor: '#ddd' },
+      yearLabel: { show: true },
+      dayLabel: { firstDay: 1, nameMap: 'cn' },
+      monthLabel: { nameMap: 'cn' }
     },
-    series: {
-      type: 'heatmap',
-      coordinateSystem: 'calendar',
-      data: Array.isArray(attendanceData.value) ? attendanceData.value : []
-    }
+    series: { type: 'heatmap', coordinateSystem: 'calendar', data: attendanceData.value }
   }
 })
 
@@ -372,18 +217,11 @@ const handleExportPDF = () => {
   exportToPDF(dashboardRef.value, '学生个人学习驾驶舱')
 }
 
-const handleSearch = async () => {
-  refreshData()
-  await refreshAiSuggestions(userInfo.value.id)
-}
-
 onMounted(async () => {
   loading.value = true
   try {
-    // 先加载学期选项
     await loadUserInfo()
-    // 然后加载所有数据
-    await refreshData()
+    await loadData()
   } catch (error) {
     console.error('初始化失败:', error)
     ElMessage.error('页面初始化失败')
@@ -396,28 +234,15 @@ onMounted(async () => {
 <template>
   <div class="dashboard-container" ref="dashboardRef" v-loading="loading">
     <div class="container-header">
-      <!-- <el-form inline label-width="80" :model="searchModel" class="select-box">
-        <el-form-item label="学期" prop="semester">
-          <el-select size="large" v-model="searchModel.semester" placeholder="请选择学期" style="width: 240px">
-            <el-option v-for="item in semesterOptions" :key="item.id" :label="item.name" :value="item.id" />
-          </el-select>
-        </el-form-item>
-      </el-form> -->
       <div class="export-btns">
         <el-button size="large" type="success" @click="handleSearch" style="margin-right: 10px;">
           刷新
-          <template #icon>
-            <i class="fas fa-sync-alt"></i>
-          </template>
+          <template #icon><i class="fas fa-sync-alt"></i></template>
         </el-button>
         <el-button-group>
           <el-button size="large" type="primary" :icon="Picture" @click="handleExportImage">导出图片</el-button>
-          <el-button size="large" @click="handleExportPDF">
-            导出PDF
-            <template #icon>
-              <i class="fas fa-file-pdf"></i>
-            </template>
-          </el-button>
+          <el-button size="large" @click="handleExportPDF">导出PDF <template #icon><i
+                class="fas fa-file-pdf"></i></template></el-button>
         </el-button-group>
       </div>
     </div>
@@ -437,7 +262,7 @@ onMounted(async () => {
       </el-col>
     </el-row>
 
-    <el-row :gutter="20" style="margin-top: 20px;" v-loading="loading">
+    <el-row :gutter="20" style="margin-top: 20px;">
       <el-col :span="24">
         <el-card shadow="hover" header="🤖 AI 学习建议">
           <div class="ai-suggestions">
@@ -464,12 +289,10 @@ onMounted(async () => {
             </el-col>
             <el-col :span="7">
               <div class="echart-desc">
-                <div style="font-size: 3rem; font-weight: 700; color: #1d4e7c">
-                  {{ statsData.latestRank }}
-                </div>
-                <div style="font-size: 1.1rem; margin-top: 8px">
-                  超过全班 <strong>{{ Math.round((1 - statsData.latestRank / 45) * 100) }}%</strong> 的同学
-                </div>
+                <div style="font-size: 3rem; font-weight: 700; color: #1d4e7c">{{ statsData.latestRank }}</div>
+                <div style="font-size: 1.1rem; margin-top: 8px">超过全班 <strong>{{ Math.round((1 - statsData.latestRank /
+                  45) *
+                  100) }}%</strong> 的同学</div>
               </div>
             </el-col>
           </el-row>
@@ -502,18 +325,9 @@ onMounted(async () => {
   .container-header {
     width: 100%;
     display: flex;
-    justify-content: space-between;
+    justify-content: flex-end;
     align-items: center;
     height: 60px;
-
-    .select-box {
-      display: flex;
-      align-items: center;
-
-      :deep(.el-form-item) {
-        margin-bottom: 0;
-      }
-    }
   }
 
   .echart-desc {
