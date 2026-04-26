@@ -1,4 +1,5 @@
 import request from '@/utils/request'
+import { getFileExtension } from './file'
 
 export const tDashboardApi = {
   // 获取班级列表
@@ -194,20 +195,6 @@ export const userManageApi = {
     })
   },
 
-  // 导入学生数据
-  importStudents(file) {
-    const formData = new FormData()
-    formData.append('file', file)
-    return request({
-      url: '/teacher/students/import',
-      method: 'post',
-      data: formData,
-      headers: {
-        'Content-Type': 'multipart/form-data',
-      },
-    })
-  },
-
   // 获取统计数据（教学看板用）
   getStats(classId) {
     return request({
@@ -273,27 +260,127 @@ export const userManageApi = {
 }
 
 export const tHomeworkApi = {
+  // 上传作业文件并解析
+  uploadHomeworkFile: (file, type) => {
+    return new Promise((resolve, reject) => {
+      // 读取文件并转为 Base64
+      const reader = new FileReader()
+
+      reader.onload = () => {
+        // 去掉 data:xxx;base64, 前缀，只保留 base64 字符串
+        const base64Content = reader.result.split(',')[1]
+
+        const requestData = {
+          fileContent: base64Content,
+          fileName: file.name,
+          fileType: file.type || getFileExtension(file.name),
+          dataType: type,
+        }
+
+        // 发送请求
+        request({
+          url: '/homework/import/parse',
+          method: 'post',
+          data: requestData,
+          timeout: 120000, // 文件上传超时时间设置长一点
+        })
+          .then(resolve)
+          .catch(reject)
+      }
+
+      reader.onerror = () => {
+        reject(new Error('文件读取失败'))
+      }
+
+      // 读取文件为 Base64
+      reader.readAsDataURL(file)
+    })
+  },
+
+  // 确认导入作业
+  confirmHomeworkInsert: (data, type) => {
+    return request({
+      url: '/homework/import/confirm',
+      method: 'post',
+      data: { data, type },
+    })
+  },
+
+  // 上传作业成绩文件并解析
+  uploadHomeworkGradeFile: (file, type) => {
+    return new Promise((resolve, reject) => {
+      // 读取文件并转为 Base64
+      const reader = new FileReader()
+
+      reader.onload = () => {
+        // 去掉 data:xxx;base64, 前缀，只保留 base64 字符串
+        const base64Content = reader.result.split(',')[1]
+
+        const requestData = {
+          fileContent: base64Content,
+          fileName: file.name,
+          fileType: file.type || getFileExtension(file.name),
+          dataType: type,
+        }
+
+        // 发送请求
+        request({
+          url: '/homework/grades/import/parse',
+          method: 'post',
+          data: requestData,
+          timeout: 120000, // 文件上传超时时间设置长一点
+        })
+          .then(resolve)
+          .catch(reject)
+      }
+
+      reader.onerror = () => {
+        reject(new Error('文件读取失败'))
+      }
+
+      // 读取文件为 Base64
+      reader.readAsDataURL(file)
+    })
+  },
+
+  // 确认导入作业成绩
+  confirmHomeworkGradeInsert: (homeworkId, data, type) => {
+    return request({
+      url: `/homework/${homeworkId}/grades/import/confirm`,
+      method: 'post',
+      data: { data, type },
+    })
+  },
   getHomeworkList(params) {
     return request({
-      url: '/teacher/homeworks',
+      url: '/homework/list',
       method: 'get',
       params,
     })
   },
 
   // 获取作业统计数据
-  getHomeworkStatistics() {
+  getHomeworkStatistics(params) {
     return request({
-      url: '/teacher/homeworks/statistics',
+      url: '/homework/statistics',
       method: 'get',
+      params,
     })
   },
-
-  // 获取作业提交列表
-  getHomeworkSubmissions(homeworkId) {
+  //创建作业
+  createHomework(data) {
     return request({
-      url: `/teacher/homework/${homeworkId}/submissions`,
-      method: 'get',
+      url: '/homework/create',
+      method: 'post',
+      data,
+    })
+  },
+  //编辑作业
+  updateHomework(homeworkId, data) {
+    return request({
+      url: `/homework/update/${homeworkId}`,
+      method: 'put',
+      data,
     })
   },
 
@@ -309,7 +396,7 @@ export const tHomeworkApi = {
   // 获取作业分析数据
   getHomeworkAnalysis(homeworkId) {
     return request({
-      url: `/teacher/homework/${homeworkId}/analysis`,
+      url: `/homework/${homeworkId}/detail`,
       method: 'get',
     })
   },
@@ -317,7 +404,7 @@ export const tHomeworkApi = {
   // 删除作业
   deleteHomework(homeworkId) {
     return request({
-      url: `/teacher/homework/${homeworkId}`,
+      url: `/homework/${homeworkId}`,
       method: 'delete',
     })
   },
@@ -330,18 +417,99 @@ export const tHomeworkApi = {
       data,
     })
   },
-
-  // 更新作业
-  updateHomework(homeworkId, data) {
-    return request({
-      url: `/teacher/homework/${homeworkId}`,
-      method: 'put',
-      data,
-    })
-  },
 }
 
 export const tExamApi = {
+  uploadGradeFile: (file, dataType) => {
+    return new Promise((resolve, reject) => {
+      // 读取文件并转为 Base64
+      const reader = new FileReader()
+
+      reader.onload = () => {
+        // 去掉 data:xxx;base64, 前缀，只保留 base64 字符串
+        const base64Content = reader.result.split(',')[1]
+
+        const requestData = {
+          fileContent: base64Content,
+          fileName: file.name,
+          fileType: file.type || getFileExtension(file.name),
+          dataType: dataType,
+        }
+
+        // 发送请求
+        request({
+          url: '/exam-import/grade/parse',
+          method: 'post',
+          data: requestData,
+          timeout: 120000, // 文件上传超时时间设置长一点
+        })
+          .then(resolve)
+          .catch(reject)
+      }
+
+      reader.onerror = () => {
+        reject(new Error('文件读取失败'))
+      }
+
+      // 读取文件为 Base64
+      reader.readAsDataURL(file)
+    })
+  },
+
+  // 确认导入成绩
+  confirmGradeInsert: (examId, data, type) => {
+    console.log('123', examId, data, type)
+    return request({
+      url: `/exam-import/grade/confirm/${examId}`,
+      method: 'post',
+      data: {
+        type: type,
+        data: data,
+      },
+    })
+  },
+  uploadFile(file, dataType) {
+    return new Promise((resolve, reject) => {
+      // 读取文件并转为 Base64
+      const reader = new FileReader()
+
+      reader.onload = () => {
+        // 去掉 data:xxx;base64, 前缀，只保留 base64 字符串
+        const base64Content = reader.result.split(',')[1]
+
+        const requestData = {
+          fileContent: base64Content,
+          fileName: file.name,
+          fileType: file.type || getFileExtension(file.name),
+          dataType: dataType,
+        }
+
+        // 发送请求
+        request({
+          url: '/exam-import/parse',
+          method: 'post',
+          data: requestData,
+          timeout: 120000, // 文件上传超时时间设置长一点
+        })
+          .then(resolve)
+          .catch(reject)
+      }
+
+      reader.onerror = () => {
+        reject(new Error('文件读取失败'))
+      }
+
+      // 读取文件为 Base64
+      reader.readAsDataURL(file)
+    })
+  },
+  confirmInsert(data, type) {
+    return request({
+      url: '/exam-import/confirm',
+      method: 'post',
+      data: { data, type },
+    })
+  },
   getScoreList(params) {
     return request({
       url: `/exam-manage/${params.examId}/grades`,
@@ -370,7 +538,7 @@ export const tExamApi = {
     return request({
       url: '/exam-manage/stats',
       method: 'get',
-      params: { params },
+      params,
     })
   },
 
@@ -417,52 +585,130 @@ export const tExamApi = {
   },
 }
 
+// teacher.js - 添加课程分析相关API
+
 export const tCourseApi = {
-  getCourseList(teacherId) {
+  // 获取课程列表
+  getCourseList() {
     return request({
-      url: '/teacher/courses',
-      method: 'get',
-      params: { teacherId },
-    })
-  },
-
-  // 获取课程概览统计
-  getCourseOverview(courseId) {
-    return request({
-      url: `/teacher/course/${courseId}/overview`,
+      url: '/course/list',
       method: 'get',
     })
   },
 
-  // 获取知识点掌握数据
-  getKnowledgeMastery(courseId) {
+  // 获取课程详情
+  getCourseDetail(courseId) {
     return request({
-      url: `/teacher/course/${courseId}/knowledge-mastery`,
+      url: `/course/${courseId}/detail`,
       method: 'get',
     })
   },
 
-  // 获取成绩趋势数据
-  getCourseTrend(courseId) {
+  // 获取课程统计卡片数据
+  getCourseStatistics(courseId) {
     return request({
-      url: `/teacher/course/${courseId}/trend`,
+      url: `/course/${courseId}/statistics`,
       method: 'get',
     })
   },
 
-  // 获取班级对比数据
-  getClassCompare(courseId) {
+  // 获取知识点列表（树形结构）
+  getKnowledgePoints(courseId) {
     return request({
-      url: `/teacher/course/${courseId}/class-compare`,
+      url: `/course/${courseId}/knowledge-points`,
       method: 'get',
     })
   },
 
-  // 获取散点图数据
-  getScatterData(courseId) {
+  // 获取知识点详情
+  getKnowledgePointDetail(courseId, kpId) {
     return request({
-      url: `/teacher/course/${courseId}/scatter`,
+      url: `/course/${courseId}/knowledge-point/${kpId}/detail`,
       method: 'get',
+    })
+  },
+
+  // 手动创建知识点
+  createKnowledgePoint(data) {
+    return request({
+      url: '/course/knowledge-point/create',
+      method: 'post',
+      data,
+    })
+  },
+
+  // 编辑知识点
+  updateKnowledgePoint(kpId, data) {
+    return request({
+      url: `/course/knowledge-point/update/${kpId}`,
+      method: 'put',
+      data,
+    })
+  },
+
+  // 删除知识点
+  deleteKnowledgePoint(kpId) {
+    return request({
+      url: `/course/knowledge-point/${kpId}`,
+      method: 'delete',
+    })
+  },
+
+  // 获取课程图表数据（包含成绩趋势、雷达图等）
+  getChartData(courseId) {
+    return request({
+      url: `/course/${courseId}/chart-data`,
+      method: 'get',
+    })
+  },
+
+  // 获取AI分析报告
+  getAiAnalysis(courseId) {
+    return request({
+      url: `/course/${courseId}/ai-analysis`,
+      method: 'get',
+    })
+  },
+
+  // 创建课程（仅管理员）
+  createCourse(data) {
+    return request({
+      url: '/course/create',
+      method: 'post',
+      data,
+    })
+  },
+
+  // AI解析知识点文件（返回解析结果给前端预览）
+  parseKnowledgePointFile(file, courseId) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader()
+      reader.onload = () => {
+        const base64Content = reader.result.split(',')[1]
+        request({
+          url: '/course/knowledge-point/import/parse',
+          method: 'post',
+          data: {
+            fileContent: base64Content,
+            fileName: file.name,
+            courseId: courseId,
+          },
+          timeout: 120000,
+        })
+          .then(resolve)
+          .catch(reject)
+      }
+      reader.onerror = () => reject(new Error('文件读取失败'))
+      reader.readAsDataURL(file)
+    })
+  },
+
+  // 确认导入知识点
+  confirmKnowledgePointImport(courseId, data) {
+    return request({
+      url: `/course/${courseId}/knowledge-point/import/confirm`,
+      method: 'post',
+      data: { data },
     })
   },
 }
@@ -521,92 +767,140 @@ export const tClassGradeApi = {
 }
 
 export const tActivityMonitorApi = {
-  getActivityOverview(classId) {
+  // 获取学生活跃度列表（分页）
+  getStudentActivityList(params) {
     return request({
-      url: '/teacher/activity/overview',
+      url: '/activity-monitor/student-list',
+      method: 'get',
+      params,
+    })
+  },
+
+  // 获取统计卡片数据
+  getStatistics(classId) {
+    return request({
+      url: '/activity-monitor/statistics',
       method: 'get',
       params: { classId },
     })
   },
 
-  // 获取活跃度趋势
-  getActivityTrend(classId) {
+  // 获取图表数据（排行榜、预警、对比等）
+  getChartData(classId) {
     return request({
-      url: '/teacher/activity/trend',
+      url: '/activity-monitor/chart-data',
       method: 'get',
       params: { classId },
     })
   },
 
-  // 获取时段分布数据
-  getActivityHourly(classId) {
+  // 获取学生活跃度详情
+  getStudentActivityDetail(studentId) {
     return request({
-      url: '/teacher/activity/hourly',
+      url: `/activity-monitor/student/${studentId}/detail`,
       method: 'get',
-      params: { classId },
     })
   },
 
-  // 获取热力图数据
-  getActivityHeatmap(classId, metric) {
-    return request({
-      url: '/teacher/activity/heatmap',
-      method: 'get',
-      params: { classId, metric },
+  // AI解析活跃度数据文件
+  parseActivityFile(file, activityType) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader()
+      reader.onload = () => {
+        const base64Content = reader.result.split(',')[1]
+        request({
+          url: '/activity-monitor/import/parse',
+          method: 'post',
+          data: {
+            fileContent: base64Content,
+            fileName: file.name,
+            activityType: activityType,
+          },
+          timeout: 120000,
+        })
+          .then(resolve)
+          .catch(reject)
+      }
+      reader.onerror = () => reject(new Error('文件读取失败'))
+      reader.readAsDataURL(file)
     })
   },
 
-  // 获取活跃度排行榜
-  getActivityRanking(classId) {
+  // 确认导入活跃度数据
+  confirmActivityImport(data) {
     return request({
-      url: '/teacher/activity/ranking',
-      method: 'get',
-      params: { classId },
+      url: '/activity-monitor/import/confirm',
+      method: 'post',
+      data: { data },
     })
   },
+}
 
-  // 获取不活跃学生列表
-  getInactiveStudents(classId) {
+export const teacherManageApi = {
+  // 获取教师列表
+  getTeacherList(data) {
     return request({
-      url: '/teacher/activity/inactive',
-      method: 'get',
-      params: { classId },
-    })
-  },
-
-  // 获取行为分析数据
-  getBehaviorAnalysis(classId) {
-    return request({
-      url: '/teacher/activity/behavior',
-      method: 'get',
-      params: { classId },
-    })
-  },
-
-  // 获取学生每日活跃数据
-  getStudentDailyActivity(studentId) {
-    return request({
-      url: '/teacher/activity/student-daily',
-      method: 'get',
-      params: { studentId },
-    })
-  },
-
-  // 获取学生学习行为分布
-  getStudentBehavior(studentId) {
-    return request({
-      url: '/teacher/activity/student-behavior',
-      method: 'get',
-      params: { studentId },
-    })
-  },
-
-  // 发送提醒
-  sendReminder(data) {
-    return request({
-      url: '/teacher/activity/send-reminder',
+      url: '/teacher-manage/list',
       method: 'post',
       data,
+    })
+  },
+
+  // 获取统计数据
+  getStats() {
+    return request({
+      url: '/teacher-manage/stats',
+      method: 'get',
+    })
+  },
+
+  // 获取教师详情
+  getTeacherById(id) {
+    return request({
+      url: `/teacher-manage/${id}`,
+      method: 'get',
+    })
+  },
+
+  // 新增教师
+  addTeacher(data) {
+    return request({
+      url: '/teacher-manage',
+      method: 'post',
+      data,
+    })
+  },
+
+  // 更新教师
+  updateTeacher(id, data) {
+    return request({
+      url: `/teacher-manage/${id}`,
+      method: 'put',
+      data,
+    })
+  },
+
+  // 删除教师
+  deleteTeacher(id) {
+    return request({
+      url: `/teacher-manage/${id}`,
+      method: 'delete',
+    })
+  },
+
+  // 重置密码
+  resetPassword(id) {
+    return request({
+      url: `/teacher-manage/${id}/reset-password`,
+      method: 'post',
+    })
+  },
+
+  // 转为管理员
+  promoteToAdmin(id) {
+    return request({
+      url: `/teacher-manage/${id}/promote-admin`,
+      method: 'post',
     })
   },
 }

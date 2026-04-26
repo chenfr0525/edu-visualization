@@ -111,7 +111,9 @@ onMounted(async () => {
           <el-dropdown>
             <span class="user-info">
               <el-avatar :size="32" icon="UserFilled" />
-              <span class="username" v-if="!appStore.isMobile">{{ userInfo?.user?.name }} (教师)</span>
+              <span class="username" v-if="!appStore.isMobile">{{ userInfo?.user?.name }} ({{
+                userInfo?.user?.role === 'ADMIN'
+                ? '管理员' : '教师' }})</span>
               <el-icon>
                 <ArrowDown />
               </el-icon>

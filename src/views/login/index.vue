@@ -134,6 +134,10 @@ const handleRegister = async () => {
                       <i class="fas fa-chalkboard-teacher"></i>
                       教师
                     </el-radio>
+                    <el-radio label="管理员" value="admin">
+                      <i class="fas fa-user-shield"></i>
+                      管理员
+                    </el-radio>
                   </el-radio-group>
                 </el-form-item>
               </el-form>

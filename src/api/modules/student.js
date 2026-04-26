@@ -268,10 +268,11 @@ export const homeworkApi = {
   },
 
   // 获取统计数据
-  getStats(studentId) {
+  getStats(studentId, courseId) {
     return request({
       url: `/analysis/student/homework/statistics/${studentId}`,
       method: 'get',
+      params: { courseId },
     })
   },
 
@@ -292,12 +293,13 @@ export const homeworkApi = {
     })
   },
 
-  getOverallSuggestion(studentID) {
-    return request({
-      url: `/analysis/student/homework/overall-analysis/${studentID}`,
-      method: 'get',
-    })
-  },
+  getOverallSuggestion: (studentId, courseId) =>
+    request.get(`/analysis/student/homework/overall-analysis/${studentId}`, {
+      params: { courseId },
+    }),
+
+  refreshAiAnalysis: (studentId, homeworkId) =>
+    request.post(`/analysis/student/homework/refresh/${studentId}/${homeworkId}`),
 
   // 获取作业趋势统计
   getHomeworkTrend(studentId, courseId) {

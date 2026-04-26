@@ -31,7 +31,7 @@ const statsData = ref({
   completedCount: 0,
   totalCount: 0,
   avgScore: 0,
-  onTimeRate: 0
+  aboveAvgCount: 0
 })
 
 // 作业列表
@@ -56,8 +56,8 @@ const statBoxes = computed(() => [
     title: '平均分',
   },
   {
-    rate: statsData.value.onTimeRate,
-    title: '按时率',
+    statNum: statsData.value.aboveAvgCount,
+    title: '高于班级平均分',
   },
 ])
 
@@ -94,7 +94,7 @@ const loadUserInfo = async () => {
 
 const loadOverallSuggestion = async () => {
   try {
-    const res = await homeworkApi.getOverallSuggestion(userInfo.value.id)
+    const res = await homeworkApi.getOverallSuggestion(userInfo.value.id, searchModel.value.courseId)
     if (res && res.data) {
       overallSuggestion.value = res.data
     }
@@ -128,7 +128,7 @@ const loadCourseOptions = async () => {
 // 加载统计数据
 const loadStats = async () => {
   try {
-    const res = await homeworkApi.getStats(userInfo.value?.id)
+    const res = await homeworkApi.getStats(userInfo.value?.id, searchModel.value.courseId)
     if (res && res.data) {
       statsData.value = res.data
     }
@@ -308,6 +308,8 @@ const handleViewDetail = async (row) => {
 const handleSearch = () => {
   pageInfo.value.page = 1
   loadHomeworkList()
+  loadStats()
+  loadOverallSuggestion()
   loadGradeTrend()
 }
 

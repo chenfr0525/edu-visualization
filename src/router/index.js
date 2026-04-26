@@ -21,9 +21,9 @@ const baseRoutes = [
         path: 'dashboard',
         component: () => {
           const authStore = useAuthStore()
-          return authStore.userRole === 'TEACHER'
-            ? import('@/views/teacher/dashboard/index.vue')
-            : import('@/views/student/dashboard/index.vue')
+          return authStore.userRole === 'STUDENT'
+            ? import('@/views/student/dashboard/index.vue')
+            : import('@/views/teacher/dashboard/index.vue')
         },
         icon: 'Monitor',
         meta: { title: '控制台', keepAlive: true },
@@ -69,6 +69,13 @@ const baseRoutes = [
         component: () => import('@/views/teacher/user-manage/index.vue'),
         icon: 'User',
         meta: { title: '学生管理', roles: ['teacher'] },
+      },
+      {
+        name: 'teacher-manage',
+        path: 'teacher-manage',
+        component: () => import('@/views/teacher/teacher-manage/index.vue'),
+        icon: 'User',
+        meta: { title: '教师管理', roles: ['admin'] },
       },
       {
         name: 'work-manage',

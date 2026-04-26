@@ -382,7 +382,6 @@ onMounted(async () => {
   try {
     // 先加载学期选项
     await loadUserInfo()
-    await loadSemesterOptions()
     // 然后加载所有数据
     await refreshData()
   } catch (error) {

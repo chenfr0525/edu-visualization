@@ -10,6 +10,7 @@ import {
   tCourseApi,
   tClassGradeApi,
   tActivityMonitorApi,
+  teacherManageApi,
 } from './modules/teacher'
 import { dashboardApi, knowledgeApi, courseApi, homeworkApi, gradeApi } from './modules/student'
 import { fileApi } from './modules/file'
@@ -31,4 +32,5 @@ export {
   tClassGradeApi,
   tActivityMonitorApi,
   fileApi,
+  teacherManageApi,
 }

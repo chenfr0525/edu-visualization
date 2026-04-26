@@ -6,7 +6,7 @@ import { exportToCSV, exportToImage, exportToPDF } from '@/utils/export'
 import StatBox from '@/views/student/dashboard/component/stat-box.vue'
 import { tDashboardApi, tExamApi } from '@/api/index.js'
 import { useAuthStore } from '@/stores/index.js'
-import { ElMessage } from 'element-plus'
+import { ElLoading, ElMessage } from 'element-plus'
 import { Picture } from '@element-plus/icons-vue'
 
 const containerRef = ref(null)
@@ -19,7 +19,7 @@ const searchModel = ref({
 const aiSuggestions = ref([])
 const classList = ref([])
 const stats = computed(() => {
-  return { ...dashboardData.value?.classHomeworkStats, studentCount: dashboardData.value?.studentCount || 0, classAverageScore: dashboardData.value?.classAverageScore || 0 } || {}
+  return { ...dashboardData.value?.classHomeworkStats, studentCount: dashboardData.value?.studentCount || 0, classAverageScore: dashboardData.value?.classAverageScore } || {}
 })
 
 const knowledgeView = ref('bar')
@@ -318,12 +318,6 @@ const initActivityChart = async () => {
         lineStyle: { color: '#409eff', width: 3 },
         symbol: 'circle',
         symbolSize: 6,
-        areaStyle: {
-          color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
-            { offset: 0, color: 'rgba(64, 158, 255, 0.3)' },
-            { offset: 1, color: 'rgba(64, 158, 255, 0.05)' }
-          ])
-        }
       },
       {
         name: '活跃人数',
@@ -570,6 +564,10 @@ const handleFilterChange = async () => {
 }
 
 const aiRefreshData = async () => {
+  const loadAlling = ElLoading.service({
+    text: '正在分析中，请稍候...',
+    fullscreen: true
+  })
   loading.value = true
   try {
     await refreshAISuggestions()
@@ -579,6 +577,7 @@ const aiRefreshData = async () => {
     ElMessage.error('数据加载失败')
   } finally {
     loading.value = false
+    loadAlling.close()
   }
 }
 
@@ -656,10 +655,10 @@ onMounted(async () => {
         <StatBox icon="fa-users" title="班级人数" :stat-num="stats.studentCount" />
       </el-col>
       <el-col :span="6">
-        <StatBox icon="fa-chart-line" title="作业平均分" :stat-num="stats.averageScore" />
+        <StatBox icon="fa-chart-line" title="作业平均分" :stat-num="stats.averageScore?.toFixed?.(2) ?? 0.00" />
       </el-col>
       <el-col :span="6">
-        <StatBox icon="fa-star" title="成绩平均分" :stat-num="stats.classAverageScore" />
+        <StatBox icon="fa-star" title="成绩平均分" :stat-num="stats.classAverageScore?.toFixed?.(2) ?? 0.00" />
       </el-col>
       <el-col :span="6">
         <StatBox icon="fa-tasks" title="作业总数" :stat-num="stats.totalHomework" />

@@ -1,4 +1,3 @@
-// src/api/file.js
 import request from '@/utils/request.js'
 
 export const fileApi = {
@@ -44,42 +43,16 @@ export const fileApi = {
   },
 
   /**
-   * 方式2：FormData 方式上传（更标准，推荐）
-   * @param {File} file - 文件对象
-   * @param {string} dataType - 数据类型
-   */
-  uploadFileWithFormData(file, dataType) {
-    const formData = new FormData()
-    formData.append('file', file)
-    formData.append('dataType', dataType)
-
-    // 需要单独设置 Content-Type，让浏览器自动处理 FormData 的边界
-    return request({
-      url: '/file/upload',
-      method: 'post',
-      data: formData,
-      headers: {
-        'Content-Type': 'multipart/form-data',
-      },
-      timeout: 120000,
-    })
-  },
-
-  /**
    * 确认插入数据
    * @param {string} sessionId - 会话ID
    * @param {Array} data - 确认后的数据
    * @param {boolean} confirmed - 是否确认
    */
-  confirmInsert(sessionId, data, confirmed = true) {
+  confirmInsert(data, type) {
     return request({
       url: '/file/confirm',
       method: 'post',
-      data: {
-        sessionId: sessionId,
-        data: data,
-        confirmed: confirmed,
-      },
+      data: { data, type },
     })
   },
 
@@ -96,6 +69,6 @@ export const fileApi = {
 }
 
 // 辅助函数：获取文件扩展名
-function getFileExtension(filename) {
+export function getFileExtension(filename) {
   return filename.substring(filename.lastIndexOf('.') + 1)
 }

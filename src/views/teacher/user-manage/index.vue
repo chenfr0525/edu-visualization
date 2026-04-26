@@ -4,7 +4,6 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import * as echarts from 'echarts'
 import StatsCard from './component/stats-card.vue'
 import { userManageApi, tDashboardApi, dashboardApi, fileApi } from '@/api/index.js'
-import { tr } from 'element-plus/es/locale/index.mjs'
 import { exportMemberExcel } from '@/utils/export'
 import StatBox from '@/views/student/dashboard/component/stat-box.vue'
 
@@ -37,11 +36,10 @@ const uploadFile = async () => {
       selectedFile.value,
       "学生信息",
     )
-    console.log("文件上传成功", result.data)
     parseResult.value = result.data
 
-    if (result.success) {
-      ElMessage.success(`解析成功！共 ${result.data?.length || 0} 条数据`)
+    if (parseResult.value.success) {
+      ElMessage.success(`解析成功！共 ${parseResult.value.data?.length || 0} 条数据`)
     } else {
       ElMessage.error('解析失败，请检查文件格式')
     }
@@ -56,55 +54,42 @@ const uploadFile = async () => {
 
 // 确认插入数据库
 const confirmInsert = async () => {
-  if (!parseResult.value || !parseResult.value.sessionId) {
-    ElMessage.error('数据无效，请重新上传')
-    return
-  }
 
   try {
-    await ElMessageBox.confirm('确认要将这些数据插入数据库吗？', '确认操作', {
+    await ElMessageBox.confirm('确认要将这些导入吗？', '确认操作', {
       confirmButtonText: '确认',
       cancelButtonText: '取消',
       type: 'warning'
     })
-
-    confirming.value = true
-
     // 确认插入
-    await fileApi.confirmInsert(
-      parseResult.value.sessionId,
-      parseResult.value.data,
-      true
+    const res = await fileApi.confirmInsert(
+      parseResult.value.data, "student"
     )
-
-    ElMessage.success('数据已成功插入数据库')
-    parseResult.value = null
-    selectedFile.value = null
-    uploadRef.value?.clearFiles()
-
-  } catch (error) {
-    if (error !== 'cancel') {
-      console.error('插入失败', error)
-      ElMessage.error(error.message || '插入失败')
+    if (res.data === '数据导入成功') {
+      ElMessage.success(res.data)
+      parseResult.value = null
+      selectedFile.value = null
+      uploadRef.value?.clearFiles()
+      handleFilterChange()
+    } else {
+      parseResult.value.summary = res.data
+      ElMessage.error(res.data)
     }
-  } finally {
-    confirming.value = false
+  } catch (error) {
+    console.error('插入失败', error)
+    ElMessage.error(error.message || '插入失败')
   }
 }
 
 // 取消插入
 const cancelInsert = async () => {
-  if (!parseResult.value || !parseResult.value.sessionId) return
-
   try {
-    await ElMessageBox.confirm('确认要取消并删除这些数据吗？', '确认操作', {
+    await ElMessageBox.confirm('确认要取消并导入这些数据吗？取消后数据将消失', '确认操作', {
       confirmButtonText: '确认',
       cancelButtonText: '取消',
       type: 'warning'
     })
-
-    await fileApi.cancelInsert(parseResult.value.sessionId)
-    ElMessage.success('已取消，临时数据已清理')
+    ElMessage.success('已取消，数据已清理')
     parseResult.value = null
     selectedFile.value = null
     uploadRef.value?.clearFiles()
@@ -123,26 +108,10 @@ const clearFile = () => {
   uploadRef.value?.clearFiles()
 }
 
-const onImportSuccess = async (response) => {
-  if (response.code === 200) {
-    ElMessage.success(`导入成功，共导入 ${response.data?.count || 0} 名学生`)
-    importDialogVisible.value = false
-    await fetchStudentList()
-    await fetchStatistics()
-  } else {
-    ElMessage.error(response.message || '导入失败')
-  }
-}
-
-const onImportError = () => {
-  ElMessage.error('导入失败，请检查文件格式或网络')
-}
-
 // 响应式数据
 const uploadRef = ref(null)
 const selectedFile = ref(null)
 const uploading = ref(false)
-const confirming = ref(false)
 const parseResult = ref(null)
 
 
@@ -320,15 +289,6 @@ const fetchStudentActivity = async (studentId) => {
     console.error('获取学生活动数据失败:', error)
   }
   return { dates: ['03-16', '03-17', '03-18', '03-19', '03-20', '03-21', '03-22'], minutes: [] }
-}
-
-// 批量导入
-const importStudents = async (file) => {
-  const res = await userManageApi.importStudents(file)
-  if (res && res.code === 200) {
-    return { success: true, count: res.data?.count || 0 }
-  }
-  return { success: false, count: 0 }
 }
 
 
@@ -586,7 +546,6 @@ const showImportDialog = () => {
 
 const exportToExcel = () => {
   try {
-    console.log('qwe', studentList.value)
     const exportData = studentList.value?.map((item, index) => ({
       id: index + 1,
       name: item?.user.name || '',
@@ -702,11 +661,6 @@ onMounted(async () => {
         <el-table-column prop="classInfo.name" label="班级" width="100" />
         <el-table-column prop="user.email" label="邮箱" min-width="180" show-overflow-tooltip />
         <el-table-column prop="user.phone" label="手机号" width="120" />
-        <el-table-column prop="lastLoginTime" label="最后登录" width="130">
-          <template #default="{ row }">
-            {{ row.user.lastLoginTime?.slice(0, 3).join('.') }}
-          </template>
-        </el-table-column>
         <el-table-column label="操作" width="200" fixed="right">
           <template #default="{ row }">
             <el-button link type="primary" size="small" @click="viewDetail(row)">
@@ -778,7 +732,13 @@ onMounted(async () => {
       <div class="import-content">
         <div class="import-tips">
           <i class="fas fa-info-circle"></i>
-          <span>包含基本学生信息，否则导入不成功！</span>
+          <h4>学生信息导入说明</h4>
+          <span>
+            必填：学号、姓名、用户名、班级、性别<br>
+            非必填：邮箱、电话<br>
+            默认：年级 = 大一<br>
+            初始密码：123456<br>
+          </span>
         </div>
         <div class="import-actions">
           <el-upload ref="uploadRef" class="upload-demo" drag :auto-upload="false" :on-change="handleFileChange"
@@ -825,7 +785,7 @@ onMounted(async () => {
         </el-alert>
 
         <!-- 数据摘要 -->
-        <div class="summary">
+        <div class="summary" style="white-space: pre-wrap;">
           <strong>摘要：</strong>{{ parseResult.summary }}
         </div>
 
@@ -843,11 +803,11 @@ onMounted(async () => {
         </div>
         <!-- 确认按钮 -->
         <div v-if="parseResult.data" class="confirm-buttons">
-          <el-button type="success" @click="confirmInsert" :loading="confirming">
+          <el-button type="success" @click="confirmInsert">
             <el-icon>
               <Check />
             </el-icon>
-            确认插入数据库
+            确认导入
           </el-button>
           <el-button type="danger" @click="cancelInsert">
             <el-icon>
