@@ -6,7 +6,8 @@ import { ElLoading, ElMessage, ElMessageBox } from 'element-plus'
 import * as echarts from 'echarts'
 import StatsCard from '../user-manage/component/stats-card.vue'
 import { exportHomeworkListToExcel, exportHomeworkGradesToExcel, exportHomeworkAnalysisToExcel, formatExamDate } from '@/utils/export'
-import { tHomeworkApi, tDashboardApi } from '@/api/index.js'
+import { tHomeworkApi, tDashboardApi, unifiedAiApi } from '@/api/index.js'
+import AiAnalysis from '@/components/AiAnalysis.vue'
 
 // ==================== 作业批量导入相关 ====================
 const homeworkImportDialogVisible = ref(false)
@@ -276,6 +277,41 @@ const clearHomeworkScoreFile = () => {
   homeworkScoreParseResult.value = null
   scoreHomeworkUploadRef.value?.clearFiles()
 }
+
+// 获取单次作业的AI分析
+const fetchHomeworkAiAnalysis = async (homeworkId, forceRefresh = false) => {
+  if (!homeworkId) return
+
+  homeworkAiLoading.value = true
+  try {
+    const api = forceRefresh ? unifiedAiApi.refresh : unifiedAiApi.analyze
+    const res = await api({
+      targetType: 'HOMEWORK',
+      targetId: homeworkId,
+      reportType: 'HOMEWORK_ANALYSIS',
+      forceRefresh: forceRefresh
+    })
+    if (res && res.data) {
+      homeworkAiAnalysis.value = res.data
+    }
+  } catch (error) {
+    console.error('获取作业AI分析失败:', error)
+  } finally {
+    homeworkAiLoading.value = false
+  }
+}
+
+// 刷新作业AI分析
+const refreshHomeworkAiAnalysis = () => {
+  if (analysisData.value?.id) {
+    fetchHomeworkAiAnalysis(analysisData.value.id, true)
+  }
+}
+
+// 作业分析弹窗中的AI数据
+const homeworkAiAnalysis = ref({})
+const homeworkAiLoading = ref(false)
+
 
 
 const loading = ref(false)
@@ -606,6 +642,7 @@ const submitHomework = async () => {
 const viewAnalysis = async (homework) => {
   const data = await fetchHomeworkAnalysis(homework?.id)
   analysisData.value = data
+  await fetchHomeworkAiAnalysis(homework?.id)
   analysisDialogVisible.value = true
   setTimeout(() => {
     initAnalysisCharts()
@@ -1021,17 +1058,18 @@ onMounted(async () => {
         </div>
         <el-row :gutter="20" style="margin-top: 20px;margin-bottom: 20px;">
           <el-col :span="24">
-            <el-card shadow="always" header="🤖 AI 分析">
-              <div class="ai-suggestions">
-                <div class="ai-content" v-if="analysisData?.aiSuggestions?.summary">
-                  <h4>总结:<p>{{ analysisData.aiSuggestions.summary }}</p>
-                  </h4>
-                  <h4>建议:<p style="white-space: pre-wrap;">{{ analysisData.aiSuggestions.suggestions }}</p>
-                  </h4>
+            <el-card shadow="always">
+              <template #header>
+                <div class="card-header">
+                  <span>🤖 AI 分析</span>
+                  <el-button size="small" type="primary" @click="refreshHomeworkAiAnalysis"
+                    :loading="homeworkAiLoading">
+                    <i class="fas fa-sync-alt"></i> 刷新分析
+                  </el-button>
                 </div>
-                <div class="ai-content" v-else>
-                  {{ '数据不存在,暂无AI建议' }}
-                </div>
+              </template>
+              <div v-loading="homeworkAiLoading">
+                <AiAnalysis :ai-analysis="homeworkAiAnalysis" />
               </div>
             </el-card>
           </el-col>

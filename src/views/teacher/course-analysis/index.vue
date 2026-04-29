@@ -3,13 +3,48 @@ import { ref, reactive, onMounted, computed, nextTick } from 'vue'
 import * as echarts from 'echarts'
 import { ElLoading, ElMessage, ElMessageBox } from 'element-plus'
 import { exportToPDF, exportCourseAnalysisToExcel } from '@/utils/export'
-import { tCourseApi, tDashboardApi, teacherManageApi } from '@/api/index.js'
+import { tCourseApi, tDashboardApi, teacherManageApi, unifiedAiApi } from '@/api/index.js'
 import { useAuthStore } from '@/stores/index.js'
+import AiAnalysis from '@/components/AiAnalysis.vue'
 
 const authStore = useAuthStore()
 const loading = ref(false)
 const containerRef = ref(null)
 
+// AI分析数据
+const aiAnalysis = ref(null)
+const aiLoading = ref(false)
+
+// 获取AI分析（使用统一接口）
+const fetchAiAnalysis = async (forceRefresh = false) => {
+  if (!searchModel.value.courseId) {
+    aiAnalysis.value = null
+    return
+  }
+
+  aiLoading.value = true
+  try {
+    const api = forceRefresh ? unifiedAiApi.refresh : unifiedAiApi.analyze
+    const res = await api({
+      targetType: 'COURSE',
+      targetId: searchModel.value.courseId,
+      reportType: 'COURSE_ANALYSIS',
+      forceRefresh: forceRefresh
+    })
+    if (res && res.data) {
+      aiAnalysis.value = res.data
+    }
+  } catch (error) {
+    console.error('获取AI分析失败:', error)
+  } finally {
+    aiLoading.value = false
+  }
+}
+
+// 刷新AI分析
+const refreshAiAnalysis = () => {
+  fetchAiAnalysis(true)
+}
 // 筛选条件
 const searchModel = ref({
   courseId: '',
@@ -42,8 +77,6 @@ const chartData = ref({
   homeworkExamComparison: []
 })
 
-// AI分析数据
-const aiAnalysis = ref(null)
 const aiAnalysisDialogVisible = ref(false)
 
 // 知识点弹窗
@@ -188,21 +221,6 @@ const fetchChartData = async () => {
     }
   } catch (error) {
     console.error('获取图表数据失败:', error)
-  }
-  return null
-}
-
-// 获取AI分析报告
-const fetchAiAnalysis = async () => {
-  if (!searchModel.value.courseId) return null
-  try {
-    const res = await tCourseApi.getAiAnalysis(searchModel.value.courseId)
-    if (res && res.data) {
-      aiAnalysis.value = res.data
-      return res.data
-    }
-  } catch (error) {
-    console.error('获取AI分析失败:', error)
   }
   return null
 }
@@ -630,8 +648,6 @@ const submitCourse = async () => {
   }
 }
 
-// ==================== 知识点AI导入 ====================
-
 // 打开知识点导入弹窗
 const showKpImportDialog = () => {
   kpParseResult.value = null
@@ -746,6 +762,7 @@ const clearKpFile = () => {
 // 刷新数据
 const refreshData = () => {
   fetchAllData()
+  fetchAiAnalysis()
 }
 
 // 切换课程
@@ -802,6 +819,7 @@ onMounted(async () => {
 })
 
 onMounted(() => {
+  fetchAiAnalysis()
   window.addEventListener('resize', () => {
     if (knowledgeChart) knowledgeChart?.resize()
     if (trendChart) trendChart?.resize()
@@ -984,26 +1002,17 @@ onMounted(() => {
       <el-col :span="12">
         <el-card class="chart-card" shadow="hover">
           <div class="chart-header">
-            <h3><i class="fas fa-robot"></i> AI 教学建议</h3>
-            <el-button type="primary" link @click="aiAnalysisDialogVisible = true" v-if="aiAnalysis">
-              查看完整报告 <i class="fas fa-arrow-right"></i>
+            <h3><i class="fas fa-robot"></i> AI 教学分析</h3>
+            <el-button size="small" type="primary" @click="refreshAiAnalysis" :loading="aiLoading">
+              <i class="fas fa-sync-alt"></i> 刷新报告
             </el-button>
           </div>
-          <div class="ai-preview" v-if="aiAnalysis">
-            <div class="ai-summary">
-              <strong>核心总结：</strong>
-              <p>{{ aiAnalysis.summary?.slice(0, 200) }}{{ aiAnalysis.summary?.length > 200 ? '...' : '' }}</p>
+          <div v-loading="aiLoading">
+            <ai-analysis v-if="aiAnalysis" :ai-analysis="aiAnalysis" />
+            <div v-else class="ai-empty">
+              <el-empty description="暂无AI分析数据" :image-size="80" />
+              <el-button type="primary" plain @click="fetchAiAnalysis">生成报告</el-button>
             </div>
-            <div class="ai-suggestions">
-              <strong>教学建议：</strong>
-              <ul>
-                <li v-for="(item, idx) in (aiAnalysis.suggestions || []).slice(0, 3)" :key="idx">{{ item }}</li>
-              </ul>
-            </div>
-          </div>
-          <div class="ai-empty" v-else>
-            <el-empty description="暂无AI分析数据" :image-size="80" />
-            <el-button type="primary" plain @click="fetchAiAnalysis">刷新获取</el-button>
           </div>
         </el-card>
       </el-col>

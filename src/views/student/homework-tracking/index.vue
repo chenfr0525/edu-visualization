@@ -2,20 +2,24 @@
 import { ref, computed, onMounted, watch } from 'vue'
 import { exportToImage, exportToPDF } from '@/utils/export'
 import StatBox from '../dashboard/component/stat-box.vue'
-import { homeworkApi } from '@/api/index.js'
+import { homeworkApi, unifiedAiApi } from '@/api/index.js'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { authApi } from '@/api/index.js'
 import EChart from '@/components/EChart.vue'
+import AiAnalysis from '@/components/AiAnalysis.vue'
 
 const containerRef = ref(null)
 const userInfo = ref(null)
 const loading = ref(false)
 const detailDrawerVisible = ref(false)
 const currentHomework = ref(null)
-const overallSuggestion = ref({
-  summary: '',
-  suggestions: ""
-})
+// 整体AI分析数据
+const overallAiAnalysis = ref({})
+const overallAiLoading = ref(false)
+
+// 单次作业AI分析数据
+const singleHomeworkAiAnalysis = ref({})
+const singleAiLoading = ref(false)
 const gradeTrendData = ref([])
 // 搜索表单
 const searchModel = ref({
@@ -92,14 +96,60 @@ const loadUserInfo = async () => {
   }
 }
 
-const loadOverallSuggestion = async () => {
+const loadOverallSuggestion = async (forceRefresh = false) => {
+  if (!userInfo.value?.id) return
+
+  overallAiLoading.value = true
   try {
-    const res = await homeworkApi.getOverallSuggestion(userInfo.value.id, searchModel.value.courseId)
+    const api = forceRefresh ? unifiedAiApi.refresh : unifiedAiApi.analyze
+    const res = await api({
+      targetType: 'STUDENT',
+      targetId: userInfo.value.id,
+      reportType: 'HOMEWORK_OVERALL',
+      forceRefresh: forceRefresh
+    })
     if (res && res.data) {
-      overallSuggestion.value = res.data
+      overallAiAnalysis.value = res.data
+      console.log('作业整体AI分析:', overallAiAnalysis.value)
     }
   } catch (error) {
-    console.error('加载整体建议失败:', error)
+    console.error('获取整体AI分析失败:', error)
+  } finally {
+    overallAiLoading.value = false
+  }
+}
+
+// 刷新整体AI分析
+const refreshOverallSuggestion = () => {
+  loadOverallSuggestion(true)
+}
+
+const loadSingleHomeworkSuggestion = async (homeworkId, forceRefresh = false) => {
+  if (!userInfo.value?.id || !homeworkId) return
+
+  singleAiLoading.value = true
+  try {
+    const api = forceRefresh ? unifiedAiApi.refresh : unifiedAiApi.analyze
+    const res = await api({
+      targetType: 'STUDENT',
+      targetId: userInfo.value.id,
+      reportType: `HOMEWORK_ANALYSIS_${homeworkId}`,
+      forceRefresh: forceRefresh
+    })
+    if (res && res.data) {
+      singleHomeworkAiAnalysis.value = res.data
+      console.log('单次作业AI分析:', singleHomeworkAiAnalysis.value)
+    }
+  } catch (error) {
+    console.error('获取单次作业AI分析失败:', error)
+  } finally {
+    singleAiLoading.value = false
+  }
+}
+
+const refreshSingleHomeworkSuggestion = (homeworkId) => {
+  if (homeworkId) {
+    loadSingleHomeworkSuggestion(homeworkId, true)
   }
 }
 
@@ -301,6 +351,7 @@ const radarOption = computed(() => {
 // 查看作业详情
 const handleViewDetail = async (row) => {
   await LoadWorkDetail(row.id)
+  await loadSingleHomeworkSuggestion(row.id, false)
   detailDrawerVisible.value = true
 }
 
@@ -320,6 +371,7 @@ const handleExportImage = () => {
 const handleExportPDF = () => {
   exportToPDF(containerRef.value, '作业跟踪')
 }
+
 watch(() => pageInfo.value.page, () => {
   loadHomeworkList()
 })
@@ -385,17 +437,17 @@ onMounted(async () => {
 
     <el-row :gutter="20" style="margin-top: 20px;">
       <el-col :span="24">
-        <el-card shadow="hover" header="🤖 AI 学习建议">
-          <div class="ai-suggestions">
-            <div class="ai-content" v-if="overallSuggestion?.summary">
-              <h4>总结:<p>{{ overallSuggestion.summary }}</p>
-              </h4>
-              <h4>建议:<p style="white-space: pre-wrap;">{{ overallSuggestion.suggestions }}</p>
-              </h4>
+        <el-card shadow="hover">
+          <template #header>
+            <div class="card-header">
+              <span>🤖 AI 作业分析</span>
+              <el-button size="small" type="primary" @click="refreshOverallSuggestion" :loading="overallAiLoading">
+                <i class="fas fa-sync-alt"></i> 刷新分析
+              </el-button>
             </div>
-            <div class="ai-content" v-else>
-              {{ '暂无AI建议，请先完成更多学习活动' }}
-            </div>
+          </template>
+          <div v-loading="overallAiLoading">
+            <AiAnalysis :ai-analysis="overallAiAnalysis" />
           </div>
         </el-card>
       </el-col>
@@ -498,26 +550,21 @@ onMounted(async () => {
         </el-descriptions>
         <el-row :gutter="20" style="margin-top: 20px;">
           <el-col :span="24">
-            <el-card shadow="hover" header="🤖 AI 学习建议">
-              <div class="ai-suggestions">
-                <div class="ai-content" v-if="currentHomework.aiSuggestion">
-                  <h4>总结:<p>{{ currentHomework.aiSuggestion.summary }}</p>
-                  </h4>
-                  <h4>优势<p v-for="(strength, index) in currentHomework.aiSuggestion.strengths" :key="index">
-                      {{ index + 1 }}.{{ strength }}
-                    </p>
-                  </h4>
-                  <h4>弱点<p v-for="(weakness, index) in currentHomework.aiSuggestion.weaknesses" :key="index">
-                      {{ index + 1 }}.{{ weakness }}
-                    </p>
-                  </h4>
-                  <h4>建议<p v-for="(suggestion, index) in currentHomework.aiSuggestion.suggestions" :key="index">
-                      {{ index + 1 }}.{{ suggestion }}
-                    </p>
-                  </h4>
+            <el-card shadow="hover">
+              <template #header>
+                <div class="card-header">
+                  <span>🤖 AI 作业分析</span>
+                  <el-button size="small" type="primary" @click="refreshSingleHomeworkSuggestion(currentHomework.id)"
+                    :loading="singleAiLoading">
+                    <i class="fas fa-sync-alt"></i> 刷新分析
+                  </el-button>
                 </div>
-                <div class="ai-content" v-else>
-                  {{ '暂无AI建议，请先完成更多学习活动' }}
+              </template>
+              <div v-loading="singleAiLoading">
+                <AiAnalysis v-if="singleHomeworkAiAnalysis && Object.keys(singleHomeworkAiAnalysis).length"
+                  :ai-analysis="singleHomeworkAiAnalysis" />
+                <div class="ai-empty" v-else>
+                  暂无AI建议，请先完成更多学习活动
                 </div>
               </div>
             </el-card>

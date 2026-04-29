@@ -4,10 +4,11 @@ import { exportToImage, exportToPDF } from '@/utils/export'
 import { Picture } from '@element-plus/icons-vue'
 import TestBox from './component/test-box.vue'
 import EChart from '@/components/EChart.vue'
-import { authApi, gradeApi, homeworkApi } from '@/api/index'
+import { authApi, gradeApi, homeworkApi, unifiedAiApi } from '@/api/index'
 import { useAuthStore } from '@/stores/index.js'
 import { ElMessage } from 'element-plus'
 import StatBox from '../dashboard/component/stat-box.vue'
+import AiAnalysis from '@/components/AiAnalysis.vue'
 
 const containerRef = ref(null)
 const authStore = useAuthStore()
@@ -16,10 +17,10 @@ const userInfo = ref(null)
 const statBoxes = ref({})
 const detailDrawerVisible = ref(false)
 const currentExam = ref(null)
-const overallSuggestion = ref({
-  summary: '',
-  suggestions: ""
-})
+const overallAiAnalysis = ref({})
+const aiLoading = ref(false)
+const detailLoading = ref(false)
+const aiAnalysis = ref({})
 const statusCardData = computed(() => [
   {
     statNum: statBoxes.value.totalExams,
@@ -204,15 +205,60 @@ const gradeTrendOption = computed(() => {
   }
 })
 
-const loadOverallSuggestion = async () => {
+const loadOverallSuggestion = async (forceRefresh = false) => {
+  if (!userInfo.value?.id) return
+
+  aiLoading.value = true
   try {
-    const res = await gradeApi.getOverallSuggestionExam(userInfo.value.id)
+    const api = forceRefresh ? unifiedAiApi.refresh : unifiedAiApi.analyze
+    const res = await api({
+      targetType: 'STUDENT',
+      targetId: userInfo.value.id,
+      reportType: 'EXAM_OVERALL',
+      forceRefresh: forceRefresh
+    })
     if (res && res.data) {
-      overallSuggestion.value = res.data
+      overallAiAnalysis.value = res.data
+      console.log('AI分析数据:', overallAiAnalysis.value)
     }
   } catch (error) {
-    console.error('加载整体建议失败:', error)
+    console.error('获取AI分析失败:', error)
+  } finally {
+    aiLoading.value = false
   }
+}
+
+// 刷新分析
+const refreshOverAllAiAnalysis = () => {
+  loadOverallSuggestion(true)
+}
+
+const loadaiSuggestion = async (examId, forceRefresh = false) => {
+  if (!userInfo.value?.id || !examId) return
+
+  detailLoading.value = true
+  try {
+    const api = forceRefresh ? unifiedAiApi.refresh : unifiedAiApi.analyze
+    const res = await api({
+      targetType: 'STUDENT',
+      targetId: userInfo.value.id,
+      reportType: `EXAM_ANALYSIS_${examId}`,  // 关键：reportType 需要包含 examId
+      forceRefresh: forceRefresh
+    })
+    if (res && res.data) {
+      aiAnalysis.value = res.data
+      console.log('单场考试AI分析数据:', aiAnalysis.value)
+    }
+  } catch (error) {
+    console.error('获取AI分析失败:', error)
+  } finally {
+    detailLoading.value = false
+  }
+}
+
+// 刷新单场考试分析
+const refreshAiAnalysis = (examId) => {
+  loadaiSuggestion(examId, true)
 }
 
 
@@ -360,6 +406,7 @@ const loadExamDetail = async (examId) => {
 }
 const handleExamClick = async (exam) => {
   await loadExamDetail(exam.id)
+  await loadaiSuggestion(exam.id, false)
   detailDrawerVisible.value = true
 }
 // 刷新所有数据
@@ -394,7 +441,7 @@ onMounted(async () => {
   await loadUserInfo()
   await loadCourseOptions()
   await loadStatusCardData()
-  await loadOverallSuggestion()
+  await loadOverallSuggestion(false)
   await refreshData()
 })
 </script>
@@ -408,19 +455,19 @@ onMounted(async () => {
         </el-col>
       </el-row>
     </div>
-    <el-row :gutter="20" style="margin-top: 20px;margin-bottom: 20px;">
+    <el-row style="margin-top: 20px;margin-bottom: 20px;">
       <el-col :span="24">
-        <el-card shadow="always" header="🤖 AI 学习建议">
-          <div class="ai-suggestions">
-            <div class="ai-content" v-if="overallSuggestion?.summary">
-              <h4>总结:<p>{{ overallSuggestion.summary }}</p>
-              </h4>
-              <h4>建议:<p style="white-space: pre-wrap;">{{ overallSuggestion.suggestions }}</p>
-              </h4>
+        <el-card shadow="always">
+          <template #header>
+            <div class="card-header">
+              <span>🤖 AI 成绩分析</span>
+              <el-button size="small" type="primary" @click="refreshOverAllAiAnalysis" :loading="aiLoading">
+                <i class="fas fa-sync-alt"></i> 刷新分析
+              </el-button>
             </div>
-            <div class="ai-content" v-else>
-              {{ '暂无AI建议，请先完成更多学习活动' }}
-            </div>
+          </template>
+          <div v-loading="aiLoading">
+            <AiAnalysis :ai-analysis="overallAiAnalysis" />
           </div>
         </el-card>
       </el-col>
@@ -521,30 +568,22 @@ onMounted(async () => {
             </div>
           </el-descriptions-item>
         </el-descriptions>
-        <el-row :gutter="20" style="margin-top: 20px;">
+        <el-row style="margin-top: 20px;">
           <el-col :span="24">
-            <el-card shadow="hover" header="🤖 AI 学习建议">
-              <div class="ai-suggestions">
-                <div class="ai-content" v-if="currentExam.aiSuggestion">
-                  <h4>总结<p>{{ currentExam.aiSuggestion.summary }}</p>
-                  </h4>
-                  <h4>优势<p v-for="(strength, index) in currentExam.aiSuggestion.strengths" :key="index">
-                      {{ currentExam.aiSuggestion.strengths?.length > 1 ? index + 1 + "." : "" }}{{ strength }}
-                    </p>
-                  </h4>
-                  <h4>弱点<p v-for="(weakness, index) in currentExam.aiSuggestion.weaknesses" :key="index">
-                      {{ currentExam.aiSuggestion.weaknesses?.length > 1 ? index + 1 + "." : "" }}{{ weakness }}
-                    </p>
-                  </h4>
-                  <h4>建议<div style="display: flex;flex-direction: column;">
-                      <p v-for="(suggestion, index) in currentExam.aiSuggestion.suggestions" :key="index">
-                        {{ currentExam.aiSuggestion.suggestions?.length > 1 ? index + 1 + "." : "" }}{{ suggestion }}
-                      </p>
-                    </div>
-                  </h4>
+            <el-card shadow="always">
+              <template #header>
+                <div class="card-header">
+                  <span>🤖 AI 成绩分析</span>
+                  <el-button size="small" type="primary" @click="refreshAiAnalysis(currentExam.id)"
+                    :loading="detailLoading">
+                    <i class="fas fa-sync-alt"></i> 刷新分析
+                  </el-button>
                 </div>
-                <div class="ai-content" v-else>
-                  {{ '暂无AI建议，请先完成更多学习活动' }}
+              </template>
+              <div v-loading="detailLoading">
+                <AiAnalysis v-if="aiAnalysis && Object.keys(aiAnalysis).length" :ai-analysis="aiAnalysis" />
+                <div class="ai-empty" v-else>
+                  暂无AI建议，请先完成更多学习活动
                 </div>
               </div>
             </el-card>

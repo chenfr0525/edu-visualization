@@ -1,13 +1,14 @@
 <script setup>
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted, computed, watch } from 'vue'
 import EChart from '@/components/EChart.vue'
 import 'echarts-wordcloud'
 import { exportToCSV, exportToImage, exportToPDF } from '@/utils/export'
 import StatBox from '@/views/student/dashboard/component/stat-box.vue'
-import { tDashboardApi, tExamApi } from '@/api/index.js'
+import { tDashboardApi, tExamApi, unifiedAiApi } from '@/api/index.js'
 import { useAuthStore } from '@/stores/index.js'
 import { ElLoading, ElMessage } from 'element-plus'
 import { Picture } from '@element-plus/icons-vue'
+import AiAnalysis from '@/components/AiAnalysis.vue'
 
 const containerRef = ref(null)
 const loading = ref(false)
@@ -16,7 +17,9 @@ const moredashboardData = ref({})
 const searchModel = ref({
   classId: '',
 })
-const aiSuggestions = ref([])
+// AI分析数据
+const aiAnalysis = ref({})
+const aiLoading = ref(false)
 const classList = ref([])
 const stats = computed(() => {
   return { ...dashboardData.value?.classHomeworkStats, studentCount: dashboardData.value?.studentCount || 0, classAverageScore: dashboardData.value?.classAverageScore } || {}
@@ -43,15 +46,38 @@ const fetchClassList = async () => {
   }
 }
 
-const fetchAISuggestions = async () => {
-  const res = await tDashboardApi.getAISuggestions(searchModel.value.classId)
-  aiSuggestions.value = res.data
-  console.log('AI建议', aiSuggestions.value)
+// 获取AI分析
+const fetchAiAnalysis = async (forceRefresh = false) => {
+  if (!searchModel.value.classId) return
+
+  aiLoading.value = true
+  try {
+    const api = forceRefresh ? unifiedAiApi.refresh : unifiedAiApi.analyze
+    const res = await api({
+      targetType: 'CLASS',
+      targetId: searchModel.value.classId,
+      reportType: 'COMPREHENSIVE',
+      forceRefresh: forceRefresh
+    })
+    if (res && res.data) {
+      aiAnalysis.value = res.data
+    }
+  } catch (error) {
+    console.error('获取AI分析失败:', error)
+  } finally {
+    aiLoading.value = false
+  }
 }
 
-const refreshAISuggestions = async () => {
-  await tDashboardApi.refreshAISuggestions(searchModel.value.classId)
+// 刷新AI分析（强制刷新）
+const refreshAiAnalysis = () => {
+  fetchAiAnalysis(true)
 }
+
+// 监听班级变化，重新获取AI分析
+watch(() => searchModel.value.classId, () => {
+  fetchAiAnalysis()
+})
 const fetchDashboardData = async () => {
   if (!searchModel.value.classId) return
   const res = await tDashboardApi.getDashboardData(searchModel.value.classId)
@@ -570,7 +596,6 @@ const aiRefreshData = async () => {
   })
   loading.value = true
   try {
-    await refreshAISuggestions()
     await refreshData()
   } catch (error) {
     console.error('刷新数据失败:', error)
@@ -591,7 +616,6 @@ const refreshData = async () => {
       initActivityChart(),
       initExamChart(),
       initKnowledgeChart(),
-      fetchAISuggestions(),
       // initHeatmapChart()
     ])
     ElMessage.success('数据已刷新')
@@ -614,6 +638,7 @@ const updateKnowledgeChart = () => {
 onMounted(async () => {
   await fetchClassList()
   await refreshData()
+  await fetchAiAnalysis()
 })
 </script>
 
@@ -667,17 +692,17 @@ onMounted(async () => {
 
     <el-row :gutter="20" style="margin-top: 20px;margin-bottom: 20px;">
       <el-col :span="24">
-        <el-card shadow="always" header="🤖 AI 分析">
-          <div class="ai-suggestions">
-            <div class="ai-content" v-if="aiSuggestions?.summary">
-              <h4>总结:<p>{{ aiSuggestions.summary }}</p>
-              </h4>
-              <h4>建议:<p style="white-space: pre-wrap;">{{ aiSuggestions.suggestions }}</p>
-              </h4>
+        <el-card shadow="always">
+          <template #header>
+            <div class="card-header">
+              <span>🤖 AI 学情分析</span>
+              <el-button size="small" type="primary" @click="refreshAiAnalysis" :loading="aiLoading">
+                <i class="fas fa-sync-alt"></i> 刷新分析
+              </el-button>
             </div>
-            <div class="ai-content" v-else>
-              {{ '数据不存在,暂无AI建议' }}
-            </div>
+          </template>
+          <div v-loading="aiLoading">
+            <AiAnalysis :ai-analysis="aiAnalysis" />
           </div>
         </el-card>
       </el-col>

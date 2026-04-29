@@ -751,13 +751,6 @@ watch(classComparison, () => {
           </el-table-column>
           <el-table-column prop="warningReason" label="预警原因" min-width="150" />
           <el-table-column prop="suggestion" label="建议措施" min-width="150" />
-          <el-table-column label="操作" width="100">
-            <template #default="{ row }">
-              <el-button link type="primary" size="small" @click="viewStudentActivity(row)">
-                查看详情
-              </el-button>
-            </template>
-          </el-table-column>
         </el-table>
       </el-card>
     </div>
@@ -814,17 +807,6 @@ watch(classComparison, () => {
               </template>
             </el-table-column>
           </el-table>
-        </div>
-
-        <div class="detail-suggestion" v-if="currentStudent.suggestion">
-          <el-divider />
-          <h4>分析建议</h4>
-          <div class="suggestion-content">
-            <p><strong>总结：</strong>{{ currentStudent.suggestion?.summary }}</p>
-            <p><strong>优势：</strong>{{ currentStudent.suggestion?.strengths?.join('、') }}</p>
-            <p><strong>不足：</strong>{{ currentStudent.suggestion?.weaknesses?.join('、') }}</p>
-            <p><strong>建议：</strong>{{ currentStudent.suggestion?.suggestions?.join('；') }}</p>
-          </div>
         </div>
       </div>
     </el-drawer>

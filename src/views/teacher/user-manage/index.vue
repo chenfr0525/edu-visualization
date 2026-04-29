@@ -3,9 +3,42 @@ import { ref, reactive, onMounted, watch, computed } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import * as echarts from 'echarts'
 import StatsCard from './component/stats-card.vue'
-import { userManageApi, tDashboardApi, dashboardApi, fileApi } from '@/api/index.js'
+import { userManageApi, tDashboardApi, dashboardApi, fileApi, unifiedAiApi } from '@/api/index.js'
 import { exportMemberExcel } from '@/utils/export'
 import StatBox from '@/views/student/dashboard/component/stat-box.vue'
+import AiAnalysis from '@/components/AiAnalysis.vue'
+
+const aiAnalysis = ref({})
+const aiLoading = ref(false)
+
+// 获取AI分析
+const fetchAiAnalysis = async (studentId, forceRefresh = false) => {
+  if (!studentId) return
+
+  aiLoading.value = true
+  try {
+    const api = forceRefresh ? unifiedAiApi.refresh : unifiedAiApi.analyze
+    const res = await api({
+      targetType: 'STUDENT',
+      targetId: studentId,
+      reportType: 'COMPREHENSIVE',
+      forceRefresh: forceRefresh
+    })
+    if (res && res.data) {
+      aiAnalysis.value = res.data
+      console.log('AI分析数据:', aiAnalysis.value)
+    }
+  } catch (error) {
+    console.error('获取AI分析失败:', error)
+  } finally {
+    aiLoading.value = false
+  }
+}
+
+// 刷新分析
+const refreshAiAnalysis = () => {
+  fetchAiAnalysis(currentStudentDashboardData.value.studentInfo.id, true)
+}
 
 //文件解析模块
 const beforeUpload = (file) => {
@@ -249,9 +282,9 @@ const fetchStatistics = async () => {
 const fetchStudentDashboard = async (studentId) => {
   try {
     const res = await dashboardApi.getStudentDashbord(studentId)
+    await fetchAiAnalysis(studentId, false)
     if (res && res.data) {
       currentStudentDashboardData.value = res.data
-      console.log('dashborad', currentStudentDashboardData.value)
     }
   } catch (error) {
     console.error('获取统计数据失败:', error)
@@ -869,6 +902,25 @@ onMounted(async () => {
             <StatBox icon="fa-trophy" title="作业完成数" :stat-num="currentStudentDashboardData.completedHomework" />
           </el-col>
         </el-row>
+
+        <el-row :gutter="20" style="margin-top: 20px;">
+          <el-col :span="24">
+            <el-card shadow="always">
+              <template #header>
+                <div class="card-header">
+                  <span>🤖 AI 学情分析</span>
+                  <el-button size="small" type="primary" @click="refreshAiAnalysis" :loading="aiLoading">
+                    <i class="fas fa-sync-alt"></i> 刷新分析
+                  </el-button>
+                </div>
+              </template>
+              <div v-loading="aiLoading">
+                <AiAnalysis :ai-analysis="aiAnalysis" />
+              </div>
+            </el-card>
+          </el-col>
+        </el-row>
+
         <div class="detail-charts">
           <div id="studentActivityChart" style="height: 200px"></div>
         </div>

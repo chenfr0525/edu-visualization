@@ -3,18 +3,18 @@ import { ref, onMounted, computed, watch } from 'vue'
 import { exportToImage, exportToPDF } from '@/utils/export'
 import EChart from '@/components/EChart.vue'
 import { Picture } from '@element-plus/icons-vue'
-import { authApi, homeworkApi, knowledgeApi } from '@/api/index'
+import { authApi, homeworkApi, knowledgeApi, unifiedAiApi } from '@/api/index'
 import { ElMessage } from 'element-plus'
 import KnowledgeDetail from './component/knowledge-detail.vue'
 import StatBox from '../dashboard/component/stat-box.vue'
+import AiAnalysis from '@/components/AiAnalysis.vue'
 
 const containerRef = ref(null)
 const loading = ref(false)
 const userInfo = ref(null)
-const overallSuggestion = ref({
-  summary: '',
-  suggestions: ""
-})
+// 知识点AI分析数据
+const knowledgeAiAnalysis = ref({})
+const knowledgeAiLoading = ref(false)
 // 统计卡片配置
 // 统计数据
 const statsData = ref({
@@ -65,16 +65,36 @@ const loadUserInfo = async () => {
   }
 }
 
-const loadOverallSuggestion = async () => {
+const loadKnowledgeAiAnalysis = async (forceRefresh = false) => {
+  if (!userInfo.value?.id) return
+
+  knowledgeAiLoading.value = true
   try {
-    const res = await knowledgeApi.getOverallSuggestion(userInfo.value.id)
+    const api = forceRefresh ? unifiedAiApi.refresh : unifiedAiApi.analyze
+    const res = await api({
+      targetType: 'STUDENT',
+      targetId: userInfo.value.id,
+      reportType: searchModel.value.courseId
+        ? `KNOWLEDGE_ANALYSIS_COURSE_${searchModel.value.courseId}`
+        : 'KNOWLEDGE_ANALYSIS',
+      forceRefresh: forceRefresh
+    })
     if (res && res.data) {
-      overallSuggestion.value = res.data
+      knowledgeAiAnalysis.value = res.data
+      console.log('知识点AI分析数据:', knowledgeAiAnalysis.value)
     }
   } catch (error) {
-    console.error('加载整体建议失败:', error)
+    console.error('获取知识点AI分析失败:', error)
+  } finally {
+    knowledgeAiLoading.value = false
   }
 }
+
+// 刷新AI分析
+const refreshKnowledgeAiAnalysis = () => {
+  loadKnowledgeAiAnalysis(true)
+}
+
 
 // 加载统计数据
 const loadStats = async () => {
@@ -201,7 +221,8 @@ const loadAllData = async () => {
       loadKnowledgeTree(),
       loadDonutData(),
       loadRadarData(),
-      loadOverallSuggestion(),
+      loadStats(),
+      loadKnowledgeAiAnalysis()
     ])
   } catch (error) {
     console.error('加载数据失败:', error)
@@ -395,9 +416,7 @@ const handleSearch = () => {
 
 onMounted(async () => {
   await loadUserInfo()
-  await loadStats()
   await loadCourseOptions()
-  await loadOverallSuggestion()
 })
 </script>
 
@@ -433,18 +452,17 @@ onMounted(async () => {
 
     <el-row :gutter="20" style="margin-top: 20px;">
       <el-col :span="24">
-        <el-card shadow="hover" header="🤖 AI 学习建议">
-          <div class="ai-suggestions">
-            <div class="ai-content" v-if="overallSuggestion?.summary">
-              <h4>总结:<p>{{ overallSuggestion.summary }}</p>
-              </h4>
-              <h4>建议:<p v-for="suggestion in overallSuggestion.suggestions">{{ suggestion }}
-                </p>
-              </h4>
+        <el-card shadow="hover">
+          <template #header>
+            <div class="card-header">
+              <span>🤖 AI 知识点分析</span>
+              <el-button size="small" type="primary" @click="refreshKnowledgeAiAnalysis" :loading="knowledgeAiLoading">
+                <i class="fas fa-sync-alt"></i> 刷新分析
+              </el-button>
             </div>
-            <div class="ai-content" v-else>
-              {{ '暂无AI建议，请先完成更多学习活动' }}
-            </div>
+          </template>
+          <div v-loading="knowledgeAiLoading">
+            <AiAnalysis :ai-analysis="knowledgeAiAnalysis" />
           </div>
         </el-card>
       </el-col>

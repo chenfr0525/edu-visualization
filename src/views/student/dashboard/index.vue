@@ -4,13 +4,16 @@ import EChart from '@/components/EChart.vue'
 import { exportToImage, exportToPDF } from '@/utils/export'
 import { Picture } from '@element-plus/icons-vue'
 import StatBox from './component/stat-box.vue'
-import { authApi, dashboardApi } from '@/api/index.js'
+import { authApi, dashboardApi, unifiedAiApi } from '@/api/index.js'
 import { ElMessage } from 'element-plus'
+import AiAnalysis from '@/components/AiAnalysis.vue'
 
 const dashboardRef = ref(null)
 const loading = ref(false)
 const dashboardData = ref(null)
 const userInfo = ref(null)
+const aiAnalysis = ref({})
+const aiLoading = ref(false)
 
 const loadUserInfo = async () => {
   try {
@@ -57,20 +60,39 @@ const loadData = async () => {
   }
 }
 
-const refreshAiSuggestions = async () => {
+// 获取AI分析
+const fetchAiAnalysis = async (forceRefresh = false) => {
   if (!userInfo.value?.id) return
+
+  aiLoading.value = true
   try {
-    await dashboardApi.getAISuggestions(userInfo.value.id)
-    await loadData() // 重新加载数据
-    ElMessage.success('AI建议已刷新')
+    const api = forceRefresh ? unifiedAiApi.refresh : unifiedAiApi.analyze
+    const res = await api({
+      targetType: 'STUDENT',
+      targetId: userInfo.value.id,
+      reportType: 'COMPREHENSIVE',
+      forceRefresh: forceRefresh
+    })
+    if (res && res.data) {
+      aiAnalysis.value = res.data
+      console.log('AI分析数据:', aiAnalysis.value)
+    }
   } catch (error) {
-    console.error('刷新AI建议失败:', error)
+    console.error('获取AI分析失败:', error)
+  } finally {
+    aiLoading.value = false
   }
 }
 
+// 刷新分析
+const refreshAiAnalysis = () => {
+  fetchAiAnalysis(true)
+}
+
+
 const handleSearch = async () => {
   await loadData()
-  await refreshAiSuggestions()
+  await refreshAiAnalysis()
 }
 
 // 刷新所有数据
@@ -78,6 +100,7 @@ const refreshData = async () => {
   loading.value = true
   try {
     await loadData()
+    await refreshAiAnalysis()
     ElMessage.success('数据已刷新')
   } catch (error) {
     console.error('刷新数据失败:', error)
@@ -222,6 +245,7 @@ onMounted(async () => {
   try {
     await loadUserInfo()
     await loadData()
+    await fetchAiAnalysis(false)
   } catch (error) {
     console.error('初始化失败:', error)
     ElMessage.error('页面初始化失败')
@@ -264,12 +288,17 @@ onMounted(async () => {
 
     <el-row :gutter="20" style="margin-top: 20px;">
       <el-col :span="24">
-        <el-card shadow="hover" header="🤖 AI 学习建议">
-          <div class="ai-suggestions">
-            <div class="ai-content">{{ dashboardData?.aiSuggestions || '暂无AI建议，请先完成更多学习活动' }}</div>
-            <div class="ai-content" v-if="dashboardData?.aiSummary">
-              <h4>总结:</h4>{{ dashboardData?.aiSummary }}
+        <el-card shadow="always">
+          <template #header>
+            <div class="card-header">
+              <span>🤖 AI 学情分析</span>
+              <el-button size="small" type="primary" @click="refreshAiAnalysis" :loading="aiLoading">
+                <i class="fas fa-sync-alt"></i> 刷新分析
+              </el-button>
             </div>
+          </template>
+          <div v-loading="aiLoading">
+            <AiAnalysis :ai-analysis="aiAnalysis" />
           </div>
         </el-card>
       </el-col>

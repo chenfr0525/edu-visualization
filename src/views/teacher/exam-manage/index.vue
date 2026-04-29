@@ -4,8 +4,9 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import * as echarts from 'echarts'
 import InfoItem from './component/info-item.vue'
 import { exportExamListToExcel, exportExamScoresToExcel, formatExamDate } from '@/utils/export'
-import { tExamApi, tDashboardApi } from '@/api/index.js'
+import { tExamApi, tDashboardApi, unifiedAiApi } from '@/api/index.js'
 import StatsCard from '../user-manage/component/stats-card.vue'
+import AiAnalysis from '@/components/AiAnalysis.vue'
 
 const loading = ref(false)
 const saving = ref(false)
@@ -270,6 +271,40 @@ const clearScoreFile = () => {
   selectedScoreFile.value = null
   scoreParseResult.value = null
   scoreUploadRef.value?.clearFiles()
+}
+
+// 考试AI分析数据
+const examAiAnalysis = ref({})
+const examAiLoading = ref(false)
+
+// 获取单次考试的AI分析
+const fetchExamAiAnalysis = async (examId, forceRefresh = false) => {
+  if (!examId) return
+
+  examAiLoading.value = true
+  try {
+    const api = forceRefresh ? unifiedAiApi.refresh : unifiedAiApi.analyze
+    const res = await api({
+      targetType: 'EXAM',
+      targetId: examId,
+      reportType: 'EXAM_ANALYSIS',
+      forceRefresh: forceRefresh
+    })
+    if (res && res.data) {
+      examAiAnalysis.value = res.data
+    }
+  } catch (error) {
+    console.error('获取考试AI分析失败:', error)
+  } finally {
+    examAiLoading.value = false
+  }
+}
+
+// 刷新考试AI分析
+const refreshExamAiAnalysis = () => {
+  if (analysisDetailData.value?.id) {
+    fetchExamAiAnalysis(analysisDetailData.value.id, true)
+  }
 }
 
 // 筛选条件
@@ -701,6 +736,7 @@ const initAnalysisCharts = () => {
 }
 const viewExamDetail = async (exam) => {
   await loadDetailData(exam?.id)
+  await fetchExamAiAnalysis(exam?.id)
   drawerVisible.value = true
 }
 
@@ -1265,6 +1301,20 @@ onMounted(async () => {
           </el-descriptions-item>
           <el-descriptions-item label="描述">{{ analysisDetailData?.description || '无' }}</el-descriptions-item>
         </el-descriptions>
+
+        <el-card shadow="always" style="margin-top: 20px;">
+          <template #header>
+            <div class="card-header">
+              <span>🤖 AI 成绩分析</span>
+              <el-button size="small" type="primary" @click="refreshExamAiAnalysis" :loading="examAiLoading">
+                <i class="fas fa-sync-alt"></i> 刷新分析
+              </el-button>
+            </div>
+          </template>
+          <div v-loading="examAiLoading">
+            <AiAnalysis :ai-analysis="examAiAnalysis" />
+          </div>
+        </el-card>
 
         <el-row :gutter="20" style="margin-top: 20px;">
           <el-col :span="12">
