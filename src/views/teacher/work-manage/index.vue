@@ -6,7 +6,7 @@ import { ElLoading, ElMessage, ElMessageBox } from 'element-plus'
 import * as echarts from 'echarts'
 import StatsCard from '../user-manage/component/stats-card.vue'
 import { exportHomeworkListToExcel, exportHomeworkGradesToExcel, exportHomeworkAnalysisToExcel, formatExamDate } from '@/utils/export'
-import { tHomeworkApi, tDashboardApi, unifiedAiApi } from '@/api/index.js'
+import { tHomeworkApi, tDashboardApi, unifiedAiApi, fileApi, tCourseApi } from '@/api/index.js'
 import AiAnalysis from '@/components/AiAnalysis.vue'
 
 // ==================== 作业批量导入相关 ====================
@@ -16,6 +16,20 @@ const selectedHomeworkFile = ref(null)
 const homeworkUploading = ref(false)
 const homeworkParseResult = ref(null)
 const homeworkSaving = ref(false)
+// 文件上传前的校验
+const beforeUpload = (file) => {
+  const isValidSize = file.size / 1024 / 1024 < 10
+  if (!isValidSize) {
+    ElMessage.error('文件大小不能超过 10MB')
+    return false
+  }
+  const isValidType = file.name.endsWith('.xlsx') || file.name.endsWith('.xls') || file.name.endsWith('.csv')
+  if (!isValidType) {
+    ElMessage.error('仅支持 .xlsx, .xls, .csv 格式文件')
+    return false
+  }
+  return true
+}
 
 // 打开作业批量导入弹窗
 const showHomeworkImportDialog = () => {
@@ -28,12 +42,11 @@ const showHomeworkImportDialog = () => {
 }
 
 // 处理作业文件变化
-const handleHomeworkFileChange = (file, fileList) => {
+const handleHomeworkFileChange = (file) => {
   selectedHomeworkFile.value = file.raw
   homeworkParseResult.value = null
 }
-
-// 上传作业文件并解析
+// 上传并解析作业文件
 const uploadHomeworkFile = async () => {
   if (!selectedHomeworkFile.value) {
     ElMessage.warning('请先选择文件')
@@ -42,11 +55,35 @@ const uploadHomeworkFile = async () => {
 
   homeworkUploading.value = true
   try {
-    const result = await tHomeworkApi.uploadHomeworkFile(
-      selectedHomeworkFile.value,
-      "作业信息录入"
-    )
+    const result = await fileApi.uploadFile(selectedHomeworkFile.value, "homework")
     homeworkParseResult.value = result.data
+
+    // 为每行数据添加默认值
+    if (homeworkParseResult.value.data) {
+      for (const row of homeworkParseResult.value.data) {
+        row.totalScore = row.totalScore || 100
+        row.knowledgePointIds = row.knowledgePointIds || []
+        // 如果AI返回了知识点名称，尝试匹配知识点ID
+        if (row.knowledgePointNames && !row.knowledgePointIds?.length) {
+          const kpNames = Array.isArray(row.knowledgePointNames)
+            ? row.knowledgePointNames
+            : row.knowledgePointNames.split(/[,，、]/)
+
+          const matchedIds = []
+          const courseKps = courseKnowledgePointsMap.value.get(row.courseId) || []
+
+          for (const kpName of kpNames) {
+            const matched = courseKps.find(kp =>
+              kp.name === kpName || kp.name.includes(kpName) || kpName.includes(kp.name)
+            )
+            if (matched) {
+              matchedIds.push(matched.id)
+            }
+          }
+          row.knowledgePointIds = matchedIds
+        }
+      }
+    }
 
     if (homeworkParseResult.value.success) {
       ElMessage.success(`解析成功！共 ${homeworkParseResult.value.data?.length || 0} 条数据`)
@@ -61,70 +98,83 @@ const uploadHomeworkFile = async () => {
   }
 }
 
-// 前端提交前处理作业数据
-function processHomeworkData(homeworkData) {
-  if (!Array.isArray(homeworkData)) {
-    homeworkData = [homeworkData]
-  }
-
-  return homeworkData.map(homework => ({
-    name: homework.name,
-    description: homework.description || '',
-    courseName: homework.courseName,
-    className: homework.className || null,
-    knowledgePointName: homework.knowledgePointName || null,
-    questionCount: homework.questionCount || 10,
-    totalScore: homework.totalScore || 100,
-    deadline: homework.deadline || null,
-    status: homework.status || 'PENDING'
-  }))
-}
-
 // 确认导入作业
-const confirmHomeworkInsert = async () => {
+const confirmHomeworkImport = async () => {
   if (!homeworkParseResult.value?.data || homeworkParseResult.value.data.length === 0) {
     ElMessage.warning('没有可导入的数据')
     return
   }
 
+  // 校验所有行的必填字段
+  const invalidRows = []
+  homeworkParseResult.value.data.forEach((row, index) => {
+    if (!row.name || !row.courseId || !row.deadline) {
+      invalidRows.push(index + 1)
+    }
+  })
+
+  if (invalidRows.length > 0) {
+    ElMessage.error(`第 ${invalidRows.join(', ')} 行存在未填写的必填项，请补充完整后再导入`)
+    return
+  }
   try {
-    await ElMessageBox.confirm(`确认要导入 ${homeworkParseResult.value.data.length} 条作业数据吗？`, '确认操作', {
+    await ElMessageBox.confirm(`确认导入 ${homeworkParseResult.value.data.length} 条作业数据吗？`, '确认操作', {
       confirmButtonText: '确认',
       cancelButtonText: '取消',
       type: 'warning'
     })
 
     homeworkSaving.value = true
-    const res = await tHomeworkApi.confirmHomeworkInsert(
-      processHomeworkData(homeworkParseResult.value.data),
-      "homework"
-    )
+    // 准备导入数据
+    const importData = homeworkParseResult.value.data.map(row => ({
+      name: row.name,
+      courseId: row.courseId,
+      deadline: row.deadline,
+      classId: row.classId || null,
+      totalScore: row.totalScore || 100,
+      description: row.description || null,
+      knowledgePointIds: row.knowledgePointIds || null
+    }))
 
-    if (res.data === '数据导入成功') {
-      ElMessage.success(res.data)
+    const res = await fileApi.confirmInsert(importData, "homework")
+
+    if (res.data && res.data.success) {
+      ElMessage.success(res.data.message || '导入成功')
+      homeworkImportDialogVisible.value = false
       homeworkParseResult.value = null
       selectedHomeworkFile.value = null
-      homeworkImportDialogVisible.value = false
       homeworkUploadRef.value?.clearFiles()
-      // 刷新作业列表和统计数据
+      // 刷新列表
       await fetchHomeworkList()
       await fetchStatistics()
     } else {
-      homeworkParseResult.value.summary = res.data
-      ElMessage.error(res.data || '导入失败')
+      ElMessageBox.alert(
+        res.data?.message || '导入完成，但存在失败项',
+        '导入结果详情',
+        {
+          confirmButtonText: '知道了',
+          type: 'warning',
+          dangerouslyUseHTMLString: false
+        }
+      )
     }
   } catch (error) {
-    if (error !== 'cancel') {
-      console.error('导入失败', error)
-      ElMessage.error(error.message || '导入失败')
-    }
+    ElMessageBox.alert(
+      error?.message || '导入完成，但存在失败项',
+      '导入结果详情',
+      {
+        confirmButtonText: '知道了',
+        type: 'warning',
+        dangerouslyUseHTMLString: false
+      }
+    )
   } finally {
     homeworkSaving.value = false
   }
 }
 
-// 取消作业导入
-const cancelHomeworkInsert = async () => {
+// 取消导入
+const cancelHomeworkImport = async () => {
   try {
     await ElMessageBox.confirm('确认要取消导入吗？取消后数据将消失', '确认操作', {
       confirmButtonText: '确认',
@@ -134,6 +184,7 @@ const cancelHomeworkInsert = async () => {
     homeworkParseResult.value = null
     selectedHomeworkFile.value = null
     homeworkUploadRef.value?.clearFiles()
+    homeworkImportDialogVisible.value = false
     ElMessage.success('已取消')
   } catch (error) {
     if (error !== 'cancel') {
@@ -142,56 +193,83 @@ const cancelHomeworkInsert = async () => {
   }
 }
 
-// 清空作业文件
+// 清空文件
 const clearHomeworkFile = () => {
   selectedHomeworkFile.value = null
   homeworkParseResult.value = null
   homeworkUploadRef.value?.clearFiles()
 }
 
+// 重置导入弹窗数据
+const resetHomeworkImportData = () => {
+  homeworkParseResult.value = null
+  selectedHomeworkFile.value = null
+  homeworkUploadRef.value?.clearFiles()
+}
+
 // ==================== 作业成绩批量导入相关 ====================
-const scoreImportHomeworkDialogVisible = ref(false)
-const scoreHomeworkUploadRef = ref(null)
-const selectedHomeworkScoreFile = ref(null)
-const homeworkScoreUploading = ref(false)
-const homeworkScoreParseResult = ref(null)
-const homeworkScoreSaving = ref(false)
-const currentHomeworkForImport = ref(null)
+const homeworkGradeImportDialogVisible = ref(false)
+const homeworkGradeUploadRef = ref(null)
+const selectedHomeworkGradeFile = ref(null)
+const homeworkGradeUploading = ref(false)
+const homeworkGradeParseResult = ref(null)
+const homeworkGradeSaving = ref(false)
+const selectedHomeworkForGrade = ref(null)
+const selectedHomeworkGradeInfo = ref(null)
 
 // 打开作业成绩导入弹窗
-const showHomeworkScoreImportDialog = (homework) => {
-  currentHomeworkForImport.value = homework
-  homeworkScoreParseResult.value = null
-  selectedHomeworkScoreFile.value = null
-  scoreImportHomeworkDialogVisible.value = true
+const showHomeworkGradeImportDialog = () => {
+  // 如果没有作业列表，先加载
+  if (homeworkList.value.length === 0) {
+    fetchHomeworkList()
+  }
+  homeworkGradeParseResult.value = null
+  selectedHomeworkGradeFile.value = null
+  selectedHomeworkForGrade.value = null
+  selectedHomeworkGradeInfo.value = null
+  homeworkGradeImportDialogVisible.value = true
   setTimeout(() => {
-    scoreHomeworkUploadRef.value?.clearFiles()
+    homeworkGradeUploadRef.value?.clearFiles()
   }, 100)
 }
-
-// 处理作业成绩文件变化
-const handleHomeworkScoreFileChange = (file, fileList) => {
-  selectedHomeworkScoreFile.value = file.raw
-  homeworkScoreParseResult.value = null
+// 选择作业后获取作业信息
+const handleHomeworkGradeChange = (homeworkId) => {
+  const homework = homeworkList.value.find(h => h.id === homeworkId)
+  if (homework) {
+    selectedHomeworkGradeInfo.value = {
+      id: homework.id,
+      name: homework.name,
+      totalScore: homework.totalScore || 100,
+      courseName: homework.courseName
+    }
+  }
 }
 
-// 上传作业成绩文件并解析
-const uploadHomeworkScoreFile = async () => {
-  if (!selectedHomeworkScoreFile.value) {
+// 处理文件变化
+const handleHomeworkGradeFileChange = (file) => {
+  selectedHomeworkGradeFile.value = file.raw
+  homeworkGradeParseResult.value = null
+}
+
+// 上传并解析作业成绩文件
+const uploadHomeworkGradeFile = async () => {
+  if (!selectedHomeworkGradeFile.value) {
     ElMessage.warning('请先选择文件')
     return
   }
 
-  homeworkScoreUploading.value = true
-  try {
-    const result = await tHomeworkApi.uploadHomeworkGradeFile(
-      selectedHomeworkScoreFile.value,
-      "作业成绩"
-    )
-    homeworkScoreParseResult.value = result.data
+  if (!selectedHomeworkForGrade.value) {
+    ElMessage.warning('请先选择作业')
+    return
+  }
 
-    if (homeworkScoreParseResult.value.success) {
-      ElMessage.success(`解析成功！共 ${homeworkScoreParseResult.value.data?.length || 0} 条数据`)
+  homeworkGradeUploading.value = true
+  try {
+    const result = await fileApi.uploadFile(selectedHomeworkGradeFile.value, "homework_grade")
+    homeworkGradeParseResult.value = result.data
+
+    if (homeworkGradeParseResult.value.success) {
+      ElMessage.success(`解析成功！共 ${homeworkGradeParseResult.value.data?.length || 0} 条数据`)
     } else {
       ElMessage.error('解析失败，请检查文件格式')
     }
@@ -199,70 +277,105 @@ const uploadHomeworkScoreFile = async () => {
     console.error('上传失败', error)
     ElMessage.error(error.message || '上传失败，请稍后重试')
   } finally {
-    homeworkScoreUploading.value = false
+    homeworkGradeUploading.value = false
   }
 }
 
 // 确认导入作业成绩
-const confirmHomeworkScoreInsert = async () => {
-  if (!homeworkScoreParseResult.value?.data || homeworkScoreParseResult.value.data.length === 0) {
+const confirmHomeworkGradeImport = async () => {
+  if (!homeworkGradeParseResult.value?.data || homeworkGradeParseResult.value.data.length === 0) {
     ElMessage.warning('没有可导入的数据')
     return
   }
 
-  if (!currentHomeworkForImport.value?.id) {
-    ElMessage.warning('请选择要导入成绩的作业')
+  if (!selectedHomeworkForGrade.value) {
+    ElMessage.warning('请选择作业')
+    return
+  }
+
+  // 校验所有行的必填字段
+  const invalidRows = []
+  homeworkGradeParseResult.value.data.forEach((row, index) => {
+    if (!row.studentName || row.score === undefined || row.score === null) {
+      invalidRows.push(index + 1)
+    }
+  })
+
+  if (invalidRows.length > 0) {
+    ElMessage.error(`第 ${invalidRows.join(', ')} 行存在未填写的必填项，请补充完整后再导入`)
     return
   }
 
   try {
-    await ElMessageBox.confirm(`确认要将这些成绩导入到作业 "${currentHomeworkForImport.value?.name}" 吗？`, '确认操作', {
+    await ElMessageBox.confirm(`确认将 ${homeworkGradeParseResult.value.data.length} 条成绩导入到作业「${selectedHomeworkGradeInfo.value?.name}」吗？`, '确认操作', {
       confirmButtonText: '确认',
       cancelButtonText: '取消',
       type: 'warning'
     })
 
-    homeworkScoreSaving.value = true
+    homeworkGradeSaving.value = true
+    // 准备导入数据
+    const importData = homeworkGradeParseResult.value.data.map(row => ({
+      studentName: row.studentName,
+      score: row.score,
+      feedback: row.feedback || null
+    }))
+
     const res = await tHomeworkApi.confirmHomeworkGradeInsert(
-      currentHomeworkForImport.value.id,
-      homeworkScoreParseResult.value.data,
+      selectedHomeworkForGrade.value,
+      importData,
       "homework_grade"
     )
 
-    if (res.data === '数据导入成功') {
-      ElMessage.success(res.data || '成绩导入成功')
-      homeworkScoreParseResult.value = null
-      selectedHomeworkScoreFile.value = null
-      scoreImportHomeworkDialogVisible.value = false
-      scoreHomeworkUploadRef.value?.clearFiles()
+    if (res.data && res.data.success) {
+      ElMessage.success(res.data.message || '成绩导入成功')
+      homeworkGradeImportDialogVisible.value = false
+      homeworkGradeParseResult.value = null
+      selectedHomeworkGradeFile.value = null
+      selectedHomeworkForGrade.value = null
+      selectedHomeworkGradeInfo.value = null
+      homeworkGradeUploadRef.value?.clearFiles()
       // 刷新作业列表（更新统计数据）
       await fetchHomeworkList()
       await fetchStatistics()
     } else {
-      homeworkScoreParseResult.value.summary = res.data
-      ElMessage.error(res.data || '导入失败')
+      ElMessageBox.alert(
+        res.data?.message || '导入完成，但存在失败项',
+        '导入结果详情',
+        {
+          confirmButtonText: '知道了',
+          type: 'warning',
+          dangerouslyUseHTMLString: false
+        }
+      )
     }
   } catch (error) {
-    if (error !== 'cancel') {
-      console.error('导入失败', error)
-      ElMessage.error(error.message || '导入失败')
-    }
+    ElMessageBox.alert(
+      error?.message || '导入完成，但存在失败项',
+      '导入结果详情',
+      {
+        confirmButtonText: '知道了',
+        type: 'warning',
+        dangerouslyUseHTMLString: false
+      }
+    )
   } finally {
-    homeworkScoreSaving.value = false
+    homeworkGradeSaving.value = false
   }
 }
 
-// 取消作业成绩导入
-const cancelHomeworkScoreInsert = async () => {
+// 取消导入
+const cancelHomeworkGradeImport = async () => {
   try {
     await ElMessageBox.confirm('确认要取消导入吗？取消后数据将消失', '确认操作', {
       confirmButtonText: '确认',
       cancelButtonText: '取消',
       type: 'warning'
     })
-    homeworkScoreParseResult.value = null
-    selectedHomeworkScoreFile.value = null
-    scoreHomeworkUploadRef.value?.clearFiles()
+    homeworkGradeParseResult.value = null
+    selectedHomeworkGradeFile.value = null
+    homeworkGradeUploadRef.value?.clearFiles()
+    homeworkGradeImportDialogVisible.value = false
     ElMessage.success('已取消')
   } catch (error) {
     if (error !== 'cancel') {
@@ -270,12 +383,65 @@ const cancelHomeworkScoreInsert = async () => {
     }
   }
 }
+// 清空文件
+const clearHomeworkGradeFile = () => {
+  selectedHomeworkGradeFile.value = null
+  homeworkGradeParseResult.value = null
+  homeworkGradeUploadRef.value?.clearFiles()
+}
 
-// 清空作业成绩文件
-const clearHomeworkScoreFile = () => {
-  selectedHomeworkScoreFile.value = null
-  homeworkScoreParseResult.value = null
-  scoreHomeworkUploadRef.value?.clearFiles()
+// 重置导入弹窗数据
+const resetHomeworkGradeImportData = () => {
+  homeworkGradeParseResult.value = null
+  selectedHomeworkGradeFile.value = null
+  selectedHomeworkForGrade.value = null
+  selectedHomeworkGradeInfo.value = null
+  homeworkGradeUploadRef.value?.clearFiles()
+}
+
+// 当前课程的知识点列表
+const currentCourseKnowledgePoints = ref([])
+
+// 课程切换时加载知识点
+const onHomeworkCourseChange = async (courseId) => {
+  if (!courseId) {
+    currentCourseKnowledgePoints.value = []
+    homeworkForm.value.knowledgePointIds = []
+    return
+  }
+  homeworkForm.value.knowledgePointIds = []
+  if (courseKnowledgePointsMap.value.has(courseId)) {
+    currentCourseKnowledgePoints.value = courseKnowledgePointsMap.value.get(courseId)
+  } else {
+    try {
+      const res = await tCourseApi.getKnowledgePoints(courseId)
+      console.log('获取知识点成功1 Test', res)
+      currentCourseKnowledgePoints.value = res.data || []
+      courseKnowledgePointsMap.value.set(courseId, currentCourseKnowledgePoints.value)
+    } catch (error) {
+      console.error('加载知识点失败:', error)
+    }
+  }
+}
+
+// 课程知识点映射（用于快速查找）
+const courseKnowledgePointsMap = ref(new Map())
+// 加载所有知识点（按课程分组）
+const fetchAllKnowledgePoints = async () => {
+  try {
+    const promises = courseList.value.map(async (course) => {
+      const res = await tCourseApi.getKnowledgePoints(course.id)
+      return { courseId: course.id, list: res.data || [] }
+    })
+    const results = await Promise.all(promises)
+    const map = new Map()
+    results.forEach(result => {
+      map.set(result.courseId, result.list)
+    })
+    courseKnowledgePointsMap.value = map
+  } catch (error) {
+    console.error('加载知识点失败:', error)
+  }
 }
 
 // 获取单次作业的AI分析
@@ -346,7 +512,6 @@ const statistics = reactive({
 })
 
 // 弹窗控制
-const gradeDrawerVisible = ref(false)
 const analysisDialogVisible = ref(false)
 
 
@@ -367,7 +532,6 @@ const gradedSubmissions = computed(() => {
 // 分析数据
 const analysisData = ref(null)
 let scoreChart = null
-let accuracyChart = null
 
 
 const fetchClassList = async () => {
@@ -500,35 +664,16 @@ const handlePageChange = (page) => {
   fetchHomeworkList()
 }
 
-
-const reGrade = (submission) => {
-  openGradeForm(submission)
-}
-
-const submitGrade = async () => {
-  const total = calculateTotalScore()
-  const success = await submitGradeApi(
-    currentSubmission.value.id,
-    currentSubmission.value.answers,
-    total
-  )
-  if (success) {
-    // 刷新提交列表
-    submissionsList.value = res.list
-  }
-}
-
 // ==================== 创建/编辑作业相关 ====================
 const homeworkDialogVisible = ref(false)
 const homeworkFormRef = ref(null)
 const homeworkSubmitting = ref(false)
-const knowledgePointList = ref([])
 
 const homeworkForm = ref({
   id: null,
   name: '',
   description: '',
-  knowledgePointId: null,
+  knowledgePointIds: [],
   courseId: '',
   questionCount: 10,
   totalScore: 100,
@@ -545,18 +690,6 @@ const homeworkRules = {
   deadline: [{ required: true, message: '请选择截止时间', trigger: 'change' }]
 }
 
-// 获取知识点列表TODO: 后端接口完善后再启用
-// const fetchKnowledgePointList = async () => {
-//   try {
-//     const res = await tHomeworkApi.getKnowledgePoints()
-//     if (res && res.data) {
-//       knowledgePointList.value = res.data
-//     }
-//   } catch (error) {
-//     console.error('获取知识点列表失败:', error)
-//   }
-// }
-
 // 显示创建作业弹窗
 const showCreateDialog = () => {
   resetHomeworkForm()
@@ -569,11 +702,14 @@ const editHomework = (homework) => {
     id: homework.id,
     name: homework.name,
     description: homework.description || '',
-    knowledgePointId: homework.knowledgePointId || null,
+    knowledgePointIds: homework.knowledgePointIds || [],
     courseId: homework.courseId,
     questionCount: homework.questionCount || 10,
     totalScore: homework.totalScore || 100,
     deadline: homework.deadline || ''
+  }
+  if (homework.courseId) {
+    onHomeworkCourseChange(homework.courseId)
   }
   homeworkDialogVisible.value = true
 }
@@ -584,12 +720,13 @@ const resetHomeworkForm = () => {
     id: null,
     name: '',
     description: '',
-    knowledgePointId: null,
+    knowledgePointIds: [],
     courseId: '',
     questionCount: 10,
     totalScore: 100,
     deadline: ''
   }
+  currentCourseKnowledgePoints.value = []
   homeworkFormRef.value?.resetFields()
 }
 
@@ -868,6 +1005,7 @@ onMounted(async () => {
   await fetchCourseList()
   await fetchStatistics()
   await fetchHomeworkList()
+  await fetchAllKnowledgePoints()
 })
 </script>
 
@@ -957,7 +1095,7 @@ onMounted(async () => {
             <el-button link type="primary" size="small" @click="deleteHomework(row)">
               <i class="fas fa-trash"></i> 删除
             </el-button>
-            <el-button link type="primary" size="small" @click="showHomeworkScoreImportDialog(row)">
+            <el-button link type="primary" size="small" @click="showHomeworkGradeImportDialog">
               <i class="fas fa-edit"></i> 录入成绩
             </el-button>
             <el-button link type="primary" size="small" @click="exportHomeworkGrades(row)">
@@ -973,55 +1111,6 @@ onMounted(async () => {
           @size-change="handleSizeChange" @current-change="handlePageChange" />
       </div>
     </div>
-
-    <!-- 批改作业弹窗 -->
-    <el-drawer v-model="gradeDrawerVisible" title="批改作业" direction="rtl" size="45%" :close-on-click-modal="false">
-      <div class="grade-container" v-if="currentHomework">
-        <div class="grade-header">
-          <h3>{{ currentHomework.title }}</h3>
-          <div class="grade-stats">
-            <span>班级: {{ currentHomework.className }}</span>
-            <span>已提交: {{ currentHomework.submittedCount }}/{{ currentHomework.totalCount }}</span>
-            <span>已批改: {{ gradedCount }}/{{ currentHomework.submittedCount }}</span>
-          </div>
-        </div>
-
-        <el-tabs v-model="activeGradeTab">
-          <el-tab-pane label="待批改列表" name="pending">
-            <el-table :data="pendingSubmissions" stripe @row-click="openGradeForm" style="width: 100%">
-              <el-table-column prop="studentName" label="姓名" width="100" />
-              <el-table-column prop="studentNo" label="学号" width="120" />
-              <el-table-column prop="submitTime" label="提交时间" width="160" />
-              <el-table-column label="操作" width="100">
-                <template #default="{ row }">
-                  <el-button link type="primary" @click.stop="openGradeForm(row)">
-                    批改
-                  </el-button>
-                </template>
-              </el-table-column>
-            </el-table>
-          </el-tab-pane>
-
-          <el-tab-pane label="已批改列表" name="graded">
-            <el-table :data="gradedSubmissions" stripe style="width: 100%">
-              <el-table-column prop="studentName" label="姓名" width="100" />
-              <el-table-column prop="studentNo" label="学号" width="120" />
-              <el-table-column prop="score" label="得分" width="80" sortable />
-              <el-table-column prop="totalScore" label="满分" width="80" />
-              <el-table-column prop="gradeTime" label="批改时间" width="160" />
-              <el-table-column label="操作">
-                <template #default="{ row }">
-                  <el-button link type="primary" @click="reGrade(row)">
-                    重新批改
-                  </el-button>
-                </template>
-              </el-table-column>
-            </el-table>
-          </el-tab-pane>
-        </el-tabs>
-      </div>
-    </el-drawer>
-
 
     <!-- 作业分析弹窗 -->
     <el-dialog v-model="analysisDialogVisible" title="作业分析报告" width="800px" :close-on-click-modal="false">
@@ -1114,14 +1203,15 @@ onMounted(async () => {
         </el-form-item>
 
         <el-form-item label="所属课程" prop="courseId">
-          <el-select v-model="homeworkForm.courseId" placeholder="请选择课程" style="width: 100%">
+          <el-select v-model="homeworkForm.courseId" placeholder="请选择课程" style="width: 100%"
+            @change="onHomeworkCourseChange">
             <el-option v-for="course in courseList" :key="course.id" :label="course.name" :value="course.id" />
           </el-select>
         </el-form-item>
-        <el-form-item label="知识点" prop="knowledgePointId">
-          <el-select v-model="homeworkForm.knowledgePointId" placeholder="请选择知识点" style="width: 100%" clearable
-            filterable>
-            <el-option v-for="kp in knowledgePointList" :key="kp.id" :label="kp.name" :value="kp.id" />
+        <el-form-item label="知识点" prop="knowledgePointIds">
+          <el-select v-model="homeworkForm.knowledgePointIds" multiple collapse-tags placeholder="请选择知识点（可多选）"
+            filterable clearable style="width: 100%">
+            <el-option v-for="kp in currentCourseKnowledgePoints" :key="kp.id" :label="kp.name" :value="kp.id" />
           </el-select>
         </el-form-item>
 
@@ -1149,216 +1239,277 @@ onMounted(async () => {
       </template>
     </el-dialog>
 
-    <!-- 添加作业批量导入弹窗 -->
-    <el-dialog v-model="homeworkImportDialogVisible" title="批量导入作业信息" width="850px">
+    <!-- 作业批量导入弹窗 -->
+    <el-dialog v-model="homeworkImportDialogVisible" title="批量导入作业" width="1000px" @close="resetHomeworkImportData">
       <div class="import-content">
         <div class="import-tips">
           <i class="fas fa-info-circle"></i>
-          <h4>作业信息导入说明</h4>
-          <span>
-            必填：作业名称、课程ID/课程名称<br>
-            非必填：班级、知识点、描述、题目数量、总分、截止时间<br>
-            默认：题目数量=10，总分=100，状态=PENDING<br>
-            截止时间格式：YYYY-MM-DD HH:mm:ss 或 YYYY-MM-DDTHH:mm:ss
-          </span>
+          <div>
+            <h4>作业信息导入说明</h4>
+            <p>必填：作业名称、课程名称、截止时间 <span style="color: #f56c6c;">*</span><br>
+              非必填：班级、总分、描述<br>
+              默认：总分=100，状态根据截止时间自动判断<br>
+              支持格式：.xlsx, .xls, .csv</p>
+          </div>
         </div>
+
         <div class="import-actions">
           <el-upload ref="homeworkUploadRef" class="upload-demo" drag :auto-upload="false"
-            :on-change="handleHomeworkFileChange" :before-upload="beforeUpload" :limit="1"
-            accept=".xlsx,.xls,.csv,.txt">
+            :on-change="handleHomeworkFileChange" :before-upload="beforeUpload" :limit="1" accept=".xlsx,.xls,.csv">
             <i class="fas fa-cloud-upload-alt"></i>
             <div class="el-upload__text">将文件拖到此处，或<em>点击上传</em></div>
             <template #tip>
-              <div class="el-upload__tip">
-                支持 .xlsx, .csv, .txt 格式文件，文件大小不超过10MB
-              </div>
+              <div class="el-upload__tip">支持 .xlsx, .csv 格式文件，文件大小不超过10MB</div>
             </template>
           </el-upload>
           <div v-if="selectedHomeworkFile" class="file-info">
             <el-alert :title="`已选择文件：${selectedHomeworkFile.name}`" type="info" :closable="false" />
           </div>
         </div>
-      </div>
 
-      <!-- 操作按钮 -->
-      <div v-if="selectedHomeworkFile" class="action-buttons">
-        <el-button type="primary" @click="uploadHomeworkFile" :loading="homeworkUploading">
-          <el-icon>
-            <Upload />
-          </el-icon>
-          开始解析
-        </el-button>
-        <el-button @click="clearHomeworkFile">清空</el-button>
-      </div>
-
-      <!-- 解析结果展示 -->
-      <div v-if="homeworkParseResult" class="parse-result">
-        <el-divider>解析结果</el-divider>
-
-        <el-alert v-if="homeworkParseResult.success" title="解析成功" type="success" :closable="false" />
-        <el-alert v-else title="解析失败" type="error" :closable="false">
-          <template #default>
-            <div v-for="(error, idx) in homeworkParseResult.errors" :key="idx" class="error-item">
-              {{ error.errorMessage }}
-            </div>
-          </template>
-        </el-alert>
-
-        <div class="summary" style="white-space: pre-wrap;">
-          <strong>摘要：</strong>{{ homeworkParseResult.summary }}
+        <!-- 操作按钮 -->
+        <div v-if="selectedHomeworkFile" class="action-buttons">
+          <el-button type="primary" @click="uploadHomeworkFile" :loading="homeworkUploading">
+            <el-icon>
+              <Upload />
+            </el-icon> 开始解析
+          </el-button>
+          <el-button @click="clearHomeworkFile">清空</el-button>
         </div>
 
-        <!-- 解析出的数据表格 -->
-        <div v-if="homeworkParseResult.data && homeworkParseResult.data.length > 0" class="data-table">
-          <h4>解析出的数据（请确认）</h4>
-          <el-table :data="homeworkParseResult.data" border stripe height="300">
-            <el-table-column prop="name" label="作业名称" width="150">
-              <template #default="{ row }">
-                <el-input v-model="row.name" size="small" placeholder="作业名称" />
-              </template>
-            </el-table-column>
-            <el-table-column prop="courseName" label="课程名称" width="120">
-              <template #default="{ row }">
-                <el-input v-model="row.courseName" size="small" placeholder="课程名称" />
-              </template>
-            </el-table-column>
-            <el-table-column prop="questionCount" label="题目数量" width="80">
-              <template #default="{ row }">
-                <el-input-number v-model="row.questionCount" :min="1" :max="100" size="small" style="width: 100%" />
-              </template>
-            </el-table-column>
-            <el-table-column prop="totalScore" label="总分" width="80">
-              <template #default="{ row }">
-                <el-input-number v-model="row.totalScore" :min="0" :max="1000" size="small" style="width: 100%" />
-              </template>
-            </el-table-column>
-            <el-table-column prop="deadline" label="截止时间" width="160">
-              <template #default="{ row }">
-                <el-input v-model="row.deadline" size="small" placeholder="YYYY-MM-DD HH:mm:ss" />
-              </template>
-            </el-table-column>
-          </el-table>
-        </div>
+        <!-- 解析结果展示 -->
+        <div v-if="homeworkParseResult" class="parse-result">
+          <el-divider>解析结果</el-divider>
 
-        <!-- 确认按钮 -->
-        <div v-if="homeworkParseResult.data" class="confirm-buttons">
-          <el-button type="success" @click="confirmHomeworkInsert" :loading="homeworkSaving">
-            <el-icon>
-              <Check />
-            </el-icon>
-            确认导入
-          </el-button>
-          <el-button type="danger" @click="cancelHomeworkInsert">
-            <el-icon>
-              <Close />
-            </el-icon>
-            取消
-          </el-button>
+          <el-alert v-if="homeworkParseResult.success" title="解析成功" type="success" :closable="false" />
+          <el-alert v-else title="解析失败" type="error" :closable="false">
+            <template #default>
+              <div v-for="(error, idx) in homeworkParseResult.errors" :key="idx" class="error-item">
+                {{ error.errorMessage }}
+              </div>
+            </template>
+          </el-alert>
+
+          <div class="summary"><strong>摘要：</strong>{{ homeworkParseResult.summary }}</div>
+
+          <!-- 解析出的数据表格 -->
+          <div v-if="homeworkParseResult.data && homeworkParseResult.data.length > 0" class="data-table">
+            <h4>解析出的数据（请确认，<span style="color: #f56c6c;">*</span>为必填项）</h4>
+            <el-table :data="homeworkParseResult.data" border stripe max-height="400" style="width: 100%">
+
+              <!-- 作业名称 -->
+              <el-table-column label="作业名称" width="180">
+                <template #default="{ row }">
+                  <el-input v-model="row.name" size="small" placeholder="必填" :class="{ 'is-error': !row.name }" />
+                </template>
+              </el-table-column>
+
+              <!-- 课程（下拉选择） -->
+              <el-table-column label="课程" width="150">
+                <template #default="{ row }">
+                  <el-select v-model="row.courseId" size="small" placeholder="请选择课程" filterable clearable
+                    :class="{ 'is-error': !row.courseId }" style="width: 100%">
+                    <el-option v-for="course in courseList" :key="course.id" :label="course.name" :value="course.id" />
+                  </el-select>
+                </template>
+              </el-table-column>
+
+              <!-- 知识点（多选） -->
+              <el-table-column label="知识点" width="180">
+                <template #default="{ row }">
+                  <el-select v-model="row.knowledgePointIds" multiple collapse-tags size="small"
+                    placeholder="请选择知识点（可多选）" filterable clearable style="width: 100%" :disabled="!row.courseId">
+                    <el-option v-for="kp in courseKnowledgePointsMap.get(row.courseId) || []" :key="kp.id"
+                      :label="kp.name" :value="kp.id" />
+                  </el-select>
+                </template>
+              </el-table-column>
+
+              <!-- 截止时间 -->
+              <el-table-column label="截止时间" width="160">
+                <template #default="{ row }">
+                  <el-date-picker v-model="row.deadline" type="datetime" size="small" placeholder="必填"
+                    format="YYYY-MM-DD HH:mm:ss" value-format="YYYY-MM-DDTHH:mm:ss"
+                    :class="{ 'is-error': !row.deadline }" style="width: 100%" />
+                </template>
+              </el-table-column>
+
+              <!-- 班级（下拉选择，可选） -->
+              <el-table-column label="班级" width="130">
+                <template #default="{ row }">
+                  <el-select v-model="row.classId" size="small" placeholder="可选" clearable filterable
+                    style="width: 100%">
+                    <el-option v-for="cls in classList" :key="cls.id" :label="cls.name" :value="cls.id" />
+                  </el-select>
+                </template>
+              </el-table-column>
+
+              <!-- 总分 -->
+              <el-table-column label="总分" width="80">
+                <template #default="{ row }">
+                  <el-input-number v-model="row.totalScore" :min="0" :max="200" :step="10" size="small"
+                    controls-position="right" style="width: 100%" />
+                </template>
+              </el-table-column>
+
+              <!-- 描述 -->
+              <el-table-column label="描述" min-width="150">
+                <template #default="{ row }">
+                  <el-input v-model="row.description" size="small" placeholder="可选" />
+                </template>
+              </el-table-column>
+
+              <!-- 状态提示 -->
+              <el-table-column label="状态" width="80" fixed="right">
+                <template #default="{ row }">
+                  <el-tag v-if="!row.name || !row.courseId || !row.deadline" type="danger" size="small">
+                    缺必填
+                  </el-tag>
+                  <el-tag v-else type="success" size="small">就绪</el-tag>
+                </template>
+              </el-table-column>
+            </el-table>
+          </div>
+
+          <!-- 确认按钮 -->
+          <div v-if="homeworkParseResult.data && homeworkParseResult.data.length > 0" class="confirm-buttons">
+            <el-button type="success" @click="confirmHomeworkImport" :loading="homeworkSaving">
+              <el-icon>
+                <Check />
+              </el-icon> 确认导入 ({{ homeworkParseResult.data.length }}条)
+            </el-button>
+            <el-button type="danger" @click="cancelHomeworkImport">取消</el-button>
+          </div>
         </div>
       </div>
     </el-dialog>
 
     <!-- 作业成绩批量导入弹窗 -->
-    <el-dialog v-model="scoreImportHomeworkDialogVisible" title="批量导入作业成绩" width="700px">
+    <el-dialog v-model="homeworkGradeImportDialogVisible" title="批量导入作业成绩" width="1000px"
+      @close="resetHomeworkGradeImportData">
       <div class="import-content">
         <div class="import-tips">
           <i class="fas fa-info-circle"></i>
-          <h4>作业成绩导入说明</h4>
-          <span>
-            必填：学生（学号或姓名）、成绩<br>
-            非必填：备注、批注<br>
-            成绩范围：0-作业总分<br>
-            匹配规则：优先按学号匹配，其次按姓名，姓名重复时请使用学号
-          </span>
+          <div>
+            <h4>作业成绩导入说明</h4>
+            <p>必填：学生（学号或姓名）、成绩 <span style="color: #f56c6c;">*</span><br>
+              非必填：批注<br>
+              成绩范围：0-作业总分（默认总分100）<br>
+              匹配规则：优先按学号匹配，其次按姓名<br>
+              支持格式：.xlsx, .xls, .csv</p>
+          </div>
         </div>
+
+        <!-- 选择作业 -->
+        <div class="select-homework" style="margin-bottom: 20px;">
+          <el-form-item label="选择作业" label-width="80px" required>
+            <el-select v-model="selectedHomeworkForGrade" placeholder="请选择要导入成绩的作业" filterable clearable
+              style="width: 350px" @change="handleHomeworkGradeChange">
+              <el-option v-for="homework in homeworkList" :key="homework.id"
+                :label="`${homework.name} (${homework.courseName})`" :value="homework.id" />
+            </el-select>
+          </el-form-item>
+          <div v-if="selectedHomeworkGradeInfo" class="homework-info">
+            <el-tag type="info">作业名称：{{ selectedHomeworkGradeInfo.name }}</el-tag>
+            <el-tag type="success">总分：{{ selectedHomeworkGradeInfo.totalScore || 100 }}</el-tag>
+          </div>
+        </div>
+
         <div class="import-actions">
-          <el-upload ref="scoreHomeworkUploadRef" class="upload-demo" drag :auto-upload="false"
-            :on-change="handleHomeworkScoreFileChange" :before-upload="beforeUpload" :limit="1"
-            accept=".xlsx,.xls,.csv,.txt">
+          <el-upload ref="homeworkGradeUploadRef" class="upload-demo" drag :auto-upload="false"
+            :on-change="handleHomeworkGradeFileChange" :before-upload="beforeUpload" :limit="1"
+            accept=".xlsx,.xls,.csv">
             <i class="fas fa-cloud-upload-alt"></i>
             <div class="el-upload__text">将文件拖到此处，或<em>点击上传</em></div>
             <template #tip>
-              <div class="el-upload__tip">
-                支持 .xlsx, .csv, .txt 格式文件，文件大小不超过10MB
-              </div>
+              <div class="el-upload__tip">支持 .xlsx, .csv 格式文件，文件大小不超过10MB</div>
             </template>
           </el-upload>
-          <div v-if="selectedHomeworkScoreFile" class="file-info">
-            <el-alert :title="`已选择文件：${selectedHomeworkScoreFile.name}`" type="info" :closable="false" />
+          <div v-if="selectedHomeworkGradeFile" class="file-info">
+            <el-alert :title="`已选择文件：${selectedHomeworkGradeFile.name}`" type="info" :closable="false" />
           </div>
         </div>
-      </div>
 
-      <!-- 操作按钮 -->
-      <div v-if="selectedHomeworkScoreFile" class="action-buttons">
-        <el-button type="primary" @click="uploadHomeworkScoreFile" :loading="homeworkScoreUploading">
-          <el-icon>
-            <Upload />
-          </el-icon>
-          开始解析
-        </el-button>
-        <el-button @click="clearHomeworkScoreFile">清空</el-button>
-      </div>
-
-      <!-- 解析结果展示 -->
-      <div v-if="homeworkScoreParseResult" class="parse-result">
-        <el-divider>解析结果</el-divider>
-
-        <el-alert v-if="homeworkScoreParseResult.success" title="解析成功" type="success" :closable="false" />
-        <el-alert v-else title="解析失败" type="error" :closable="false">
-          <template #default>
-            <div v-for="(error, idx) in homeworkScoreParseResult.errors" :key="idx" class="error-item">
-              {{ error.errorMessage }}
-            </div>
-          </template>
-        </el-alert>
-
-        <div class="summary" style="white-space: pre-wrap;">
-          <strong>摘要：</strong>{{ homeworkScoreParseResult.summary }}
+        <!-- 操作按钮 -->
+        <div v-if="selectedHomeworkGradeFile" class="action-buttons">
+          <el-button type="primary" @click="uploadHomeworkGradeFile" :loading="homeworkGradeUploading">
+            <el-icon>
+              <Upload />
+            </el-icon> 开始解析
+          </el-button>
+          <el-button @click="clearHomeworkGradeFile">清空</el-button>
         </div>
 
-        <!-- 解析出的数据表格 -->
-        <div v-if="homeworkScoreParseResult.data && homeworkScoreParseResult.data.length > 0" class="data-table">
-          <h4>解析出的数据（请确认）</h4>
-          <el-table :data="homeworkScoreParseResult.data" border stripe height="300">
-            <el-table-column prop="studentName" label="学生（学号或姓名）" width="150">
-              <template #default="{ row }">
-                <el-input v-model="row.studentName" size="small" placeholder="学号或姓名" />
-              </template>
-            </el-table-column>
-            <el-table-column prop="score" label="成绩" width="120">
-              <template #default="{ row }">
-                <el-input-number v-model="row.score" :min="0" :max="currentHomeworkForImport?.totalScore || 100"
-                  :controls="false" size="small" style="width: 100%" />
-              </template>
-            </el-table-column>
-            <el-table-column prop="feedback" label="批注" min-width="150">
-              <template #default="{ row }">
-                <el-input v-model="row.feedback" size="small" placeholder="批注（可选）" />
-              </template>
-            </el-table-column>
-            <el-table-column prop="remark" label="备注" width="120">
-              <template #default="{ row }">
-                <el-input v-model="row.remark" size="small" placeholder="备注（可选）" />
-              </template>
-            </el-table-column>
-          </el-table>
-        </div>
+        <!-- 解析结果展示 -->
+        <div v-if="homeworkGradeParseResult" class="parse-result">
+          <el-divider>解析结果</el-divider>
 
-        <!-- 确认按钮 -->
-        <div v-if="homeworkScoreParseResult.data" class="confirm-buttons">
-          <el-button type="success" @click="confirmHomeworkScoreInsert" :loading="homeworkScoreSaving">
-            <el-icon>
-              <Check />
-            </el-icon>
-            确认导入
-          </el-button>
-          <el-button type="danger" @click="cancelHomeworkScoreInsert">
-            <el-icon>
-              <Close />
-            </el-icon>
-            取消
-          </el-button>
+          <el-alert v-if="homeworkGradeParseResult.success" title="解析成功" type="success" :closable="false" />
+          <el-alert v-else title="解析失败" type="error" :closable="false">
+            <template #default>
+              <div v-for="(error, idx) in homeworkGradeParseResult.errors" :key="idx" class="error-item">
+                {{ error.errorMessage }}
+              </div>
+            </template>
+          </el-alert>
+
+          <div class="summary"><strong>摘要：</strong>{{ homeworkGradeParseResult.summary }}</div>
+
+          <!-- 解析出的数据表格 -->
+          <div v-if="homeworkGradeParseResult.data && homeworkGradeParseResult.data.length > 0" class="data-table">
+            <h4>解析出的数据（请确认，<span style="color: #f56c6c;">*</span>为必填项）</h4>
+            <el-table :data="homeworkGradeParseResult.data" border stripe max-height="400" style="width: 100%">
+
+              <!-- 学生（学号或姓名） -->
+              <el-table-column label="学生" width="150">
+                <template #default="{ row }">
+                  <el-input v-model="row.studentName" size="small" placeholder="学号或姓名"
+                    :class="{ 'is-error': !row.studentName }" />
+                  <div v-if="row.studentId" class="match-success">✓ 已匹配</div>
+                  <div v-if="row._error_studentName" class="match-error">{{ row._error_studentName }}</div>
+                </template>
+              </el-table-column>
+
+              <!-- 成绩 -->
+              <el-table-column label="成绩" width="120">
+                <template #default="{ row }">
+                  <el-input-number v-model="row.score" :min="0" :max="selectedHomeworkGradeInfo?.totalScore || 100"
+                    :step="1" size="small" controls-position="right" style="width: 100%"
+                    :class="{ 'is-error': row.score === undefined || row.score === null }" />
+                </template>
+              </el-table-column>
+
+              <!-- 批注 -->
+              <el-table-column label="批注" min-width="200">
+                <template #default="{ row }">
+                  <el-input v-model="row.feedback" size="small" placeholder="可选" />
+                </template>
+              </el-table-column>
+
+              <!-- 状态提示 -->
+              <el-table-column label="状态" width="100" fixed="right">
+                <template #default="{ row }">
+                  <el-tag v-if="!row.studentName || row.score === undefined" type="danger" size="small">
+                    缺必填
+                  </el-tag>
+                  <el-tag v-else-if="!row.studentId" type="warning" size="small">
+                    学生待匹配
+                  </el-tag>
+                  <el-tag v-else type="success" size="small">就绪</el-tag>
+                </template>
+              </el-table-column>
+            </el-table>
+          </div>
+
+          <!-- 确认按钮 -->
+          <div v-if="homeworkGradeParseResult.data && homeworkGradeParseResult.data.length > 0" class="confirm-buttons">
+            <el-button type="success" @click="confirmHomeworkGradeImport" :loading="homeworkGradeSaving">
+              <el-icon>
+                <Check />
+              </el-icon> 确认导入 ({{ homeworkGradeParseResult.data.length }}条)
+            </el-button>
+            <el-button type="danger" @click="cancelHomeworkGradeImport">取消</el-button>
+          </div>
         </div>
       </div>
     </el-dialog>
@@ -1677,6 +1828,33 @@ onMounted(async () => {
   color: #f56c6c;
   font-size: 12px;
   margin-top: 4px;
+}
+
+.match-success {
+  font-size: 11px;
+  color: #67c23a;
+  margin-top: 2px;
+}
+
+.match-error {
+  font-size: 11px;
+  color: #f56c6c;
+  margin-top: 2px;
+}
+
+.select-homework {
+  background: #f8fafc;
+  padding: 12px 16px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+
+  .homework-info {
+    display: flex;
+    gap: 12px;
+  }
 }
 
 /* 响应式 */

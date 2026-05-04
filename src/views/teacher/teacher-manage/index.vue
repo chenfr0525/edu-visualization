@@ -315,7 +315,7 @@ onMounted(async () => {
       <div class="action-left">
         <el-input v-model="searchModel.keyword" placeholder="搜索姓名/工号/用户名" prefix-icon="Search" clearable
           style="width: 260px" @clear="handleSearch" @keyup.enter="handleSearch" />
-        <el-select v-model="searchModel.department" placeholder="按部门筛选" clearable style="width: 150px"
+        <el-select size="large" v-model="searchModel.department" placeholder="按部门筛选" clearable style="width: 150px"
           @change="handleFilterChange">
           <el-option v-for="dept in departmentList" :key="dept" :label="dept" :value="dept" />
         </el-select>

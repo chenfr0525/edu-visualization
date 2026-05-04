@@ -3,7 +3,7 @@ import { ref, reactive, onMounted, computed, nextTick } from 'vue'
 import * as echarts from 'echarts'
 import { ElLoading, ElMessage, ElMessageBox } from 'element-plus'
 import { exportToPDF, exportCourseAnalysisToExcel } from '@/utils/export'
-import { tCourseApi, tDashboardApi, teacherManageApi, unifiedAiApi } from '@/api/index.js'
+import { fileApi, tCourseApi, tDashboardApi, teacherManageApi, unifiedAiApi } from '@/api/index.js'
 import { useAuthStore } from '@/stores/index.js'
 import AiAnalysis from '@/components/AiAnalysis.vue'
 
@@ -116,6 +116,12 @@ const selectedKpFile = ref(null)
 const kpUploading = ref(false)
 const kpParseResult = ref(null)
 const kpSaving = ref(false)
+
+// 获取当前课程名称
+const getCurrentCourseName = () => {
+  const course = courseList.value.find(c => c.id === searchModel.value.courseId)
+  return course ? course.name : ''
+}
 
 // 权限判断
 const isAdmin = computed(() => authStore.userRole === 'ADMIN')
@@ -650,6 +656,10 @@ const submitCourse = async () => {
 
 // 打开知识点导入弹窗
 const showKpImportDialog = () => {
+  if (!searchModel.value.courseId) {
+    ElMessage.warning('请先选择课程')
+    return
+  }
   kpParseResult.value = null
   selectedKpFile.value = null
   kpImportDialogVisible.value = true
@@ -670,14 +680,19 @@ const uploadKpFile = async () => {
     ElMessage.warning('请先选择文件')
     return
   }
+  if (!searchModel.value.courseId) {
+    ElMessage.warning('请先选择课程')
+    return
+  }
 
   kpUploading.value = true
   try {
-    const res = await tCourseApi.parseKnowledgePointFile(
+    const result = await fileApi.uploadFile(
       selectedKpFile.value,
+      "knowledge",
       searchModel.value.courseId
     )
-    kpParseResult.value = res.data
+    kpParseResult.value = result.data
 
     if (kpParseResult.value.success) {
       ElMessage.success(`解析成功！共 ${kpParseResult.value.data?.length || 0} 条数据`)
@@ -685,8 +700,8 @@ const uploadKpFile = async () => {
       ElMessage.error('解析失败，请检查文件格式')
     }
   } catch (error) {
-    console.error('解析失败:', error)
-    ElMessage.error(error.message || '解析失败')
+    console.error('上传失败', error)
+    ElMessage.error(error.message || '上传失败，请稍后重试')
   } finally {
     kpUploading.value = false
   }
@@ -699,46 +714,84 @@ const confirmKpImport = async () => {
     return
   }
 
+  if (!searchModel.value.courseId) {
+    ElMessage.warning('请先选择课程')
+    return
+  }
+
+  // 校验所有行的必填字段
+  const invalidRows = []
+  kpParseResult.value.data.forEach((row, index) => {
+    if (!row.name) {
+      invalidRows.push(index + 1)
+    }
+  })
+
+  if (invalidRows.length > 0) {
+    ElMessage.error(`第 ${invalidRows.join(', ')} 行存在未填写的必填项，请补充完整后再导入`)
+    return
+  }
+
   try {
-    await ElMessageBox.confirm(`确认导入 ${kpParseResult.value.data.length} 条知识点数据吗？`, '确认操作', {
+    await ElMessageBox.confirm(`确认将 ${kpParseResult.value.data.length} 条知识点导入到当前课程吗？`, '确认操作', {
       confirmButtonText: '确认',
       cancelButtonText: '取消',
       type: 'warning'
     })
 
     kpSaving.value = true
+    // 准备导入数据
+    const importData = kpParseResult.value.data.map(row => ({
+      name: row.name,
+      description: row.description || null,
+      parentId: row.parentId || null,
+      sortOrder: row.sortOrder || 0
+    }))
+
     const res = await tCourseApi.confirmKnowledgePointImport(
       searchModel.value.courseId,
-      kpParseResult.value.data
+      importData
     )
 
-    if (res.data && res.data.success) {
-      ElMessage.success(res.data.message || '导入成功')
+    if (res.data?.success) {
+      ElMessage.success(res.data.message || '知识点导入成功')
+      kpImportDialogVisible.value = false
       kpParseResult.value = null
       selectedKpFile.value = null
-      kpImportDialogVisible.value = false
       kpUploadRef.value?.clearFiles()
-      // 刷新数据
+      // 刷新知识点列表
       await fetchKnowledgePoints()
       await fetchChartData()
       initKnowledgeChart()
     } else {
-      ElMessage.error(res.data?.message || '导入失败')
+      ElMessageBox.alert(
+        res.data?.message || '导入完成，但存在失败项',
+        '导入结果详情',
+        {
+          confirmButtonText: '知道了',
+          type: 'warning',
+          dangerouslyUseHTMLString: false
+        }
+      )
     }
   } catch (error) {
-    if (error !== 'cancel') {
-      console.error('导入失败:', error)
-      ElMessage.error(error.message || '导入失败')
-    }
+    ElMessageBox.alert(
+      error?.message || '导入完成，但存在失败项',
+      '导入结果详情',
+      {
+        confirmButtonText: '知道了',
+        type: 'warning',
+        dangerouslyUseHTMLString: false
+      }
+    )
   } finally {
     kpSaving.value = false
   }
 }
-
 // 取消导入
 const cancelKpImport = async () => {
   try {
-    await ElMessageBox.confirm('确认取消导入吗？', '提示', {
+    await ElMessageBox.confirm('确认要取消导入吗？取消后数据将消失', '确认操作', {
       confirmButtonText: '确认',
       cancelButtonText: '取消',
       type: 'warning'
@@ -746,9 +799,12 @@ const cancelKpImport = async () => {
     kpParseResult.value = null
     selectedKpFile.value = null
     kpUploadRef.value?.clearFiles()
+    kpImportDialogVisible.value = false
     ElMessage.success('已取消')
   } catch (error) {
-    // 用户取消操作
+    if (error !== 'cancel') {
+      console.error('取消失败', error)
+    }
   }
 }
 
@@ -756,6 +812,13 @@ const cancelKpImport = async () => {
 const clearKpFile = () => {
   selectedKpFile.value = null
   kpParseResult.value = null
+  kpUploadRef.value?.clearFiles()
+}
+
+// 重置导入弹窗数据
+const resetKpImportData = () => {
+  kpParseResult.value = null
+  selectedKpFile.value = null
   kpUploadRef.value?.clearFiles()
 }
 
@@ -1110,54 +1173,122 @@ onMounted(() => {
     </el-dialog>
 
     <!-- 知识点批量导入弹窗 -->
-    <el-dialog v-model="kpImportDialogVisible" title="批量导入知识点" width="850px">
+    <el-dialog v-model="kpImportDialogVisible" title="批量导入知识点" width="1000px" @close="resetKpImportData">
       <div class="import-content">
         <div class="import-tips">
           <i class="fas fa-info-circle"></i>
           <div>
             <h4>知识点导入说明</h4>
-            <p>必填：知识点名称<br>非必填：描述、父知识点名称、层级、排序<br>支持格式：.xlsx, .xls, .csv</p>
+            <p>必填：知识点名称 <span style="color: #f56c6c;">*</span><br>
+              非必填：描述、父知识点名称、排序<br>
+              支持格式：.xlsx, .xls, .csv</p>
+            <p style="color: #e6a23c;">注意：请先选择课程，知识点将导入到当前课程下</p>
           </div>
         </div>
 
-        <div class="import-actions">
-          <el-upload ref="kpUploadRef" drag :auto-upload="false" :on-change="handleKpFileChange" :limit="1"
-            accept=".xlsx,.xls,.csv">
+        <!-- 当前课程提示 -->
+        <div class="current-course-info" v-if="searchModel.courseId">
+          <el-alert :title="`当前课程：${getCurrentCourseName()}`" type="info" :closable="false" show-icon />
+        </div>
+        <div v-else class="course-warning">
+          <el-alert title="请先在上方筛选栏选择课程，再进行知识点导入" type="warning" :closable="false" show-icon />
+        </div>
+
+        <div class="import-actions" v-if="searchModel.courseId">
+          <el-upload ref="kpUploadRef" class="upload-demo" drag :auto-upload="false" :on-change="handleKpFileChange"
+            :before-upload="beforeUpload" :limit="1" accept=".xlsx,.xls,.csv">
             <i class="fas fa-cloud-upload-alt"></i>
             <div class="el-upload__text">将文件拖到此处，或<em>点击上传</em></div>
+            <template #tip>
+              <div class="el-upload__tip">支持 .xlsx, .csv 格式文件，文件大小不超过10MB</div>
+            </template>
           </el-upload>
           <div v-if="selectedKpFile" class="file-info">
-            <el-alert :title="`已选择：${selectedKpFile.name}`" type="info" :closable="false" />
+            <el-alert :title="`已选择文件：${selectedKpFile.name}`" type="info" :closable="false" />
           </div>
         </div>
 
-        <div v-if="selectedKpFile" class="action-buttons">
+        <!-- 操作按钮 -->
+        <div v-if="selectedKpFile && searchModel.courseId" class="action-buttons">
           <el-button type="primary" @click="uploadKpFile" :loading="kpUploading">
-            开始解析
+            <el-icon>
+              <Upload />
+            </el-icon> 开始解析
           </el-button>
           <el-button @click="clearKpFile">清空</el-button>
         </div>
 
-        <!-- 解析结果 -->
+        <!-- 解析结果展示 -->
         <div v-if="kpParseResult" class="parse-result">
           <el-divider>解析结果</el-divider>
-          <el-alert :title="kpParseResult.success ? '解析成功' : '解析失败'" :type="kpParseResult.success ? 'success' : 'error'"
-            :closable="false" />
-          <div class="summary">{{ kpParseResult.summary }}</div>
 
-          <div v-if="kpParseResult.data?.length" class="data-table">
-            <h4>解析数据预览（请确认）</h4>
-            <el-table :data="kpParseResult.data" border stripe max-height="300" size="small">
-              <el-table-column prop="name" label="知识点名称" width="150" />
-              <el-table-column prop="parentName" label="父知识点" width="120" />
-              <el-table-column prop="description" label="描述" min-width="200" show-overflow-tooltip />
-              <el-table-column prop="level" label="层级" width="60" />
-              <el-table-column prop="sortOrder" label="排序" width="60" />
+          <el-alert v-if="kpParseResult.success" title="解析成功" type="success" :closable="false" />
+          <el-alert v-else title="解析失败" type="error" :closable="false">
+            <template #default>
+              <div v-for="(error, idx) in kpParseResult.errors" :key="idx" class="error-item">
+                {{ error.errorMessage }}
+              </div>
+            </template>
+          </el-alert>
+
+          <div class="summary"><strong>摘要：</strong>{{ kpParseResult.summary }}</div>
+
+          <!-- 解析出的数据表格 -->
+          <div v-if="kpParseResult.data && kpParseResult.data.length > 0" class="data-table">
+            <h4>解析出的数据（请确认，<span style="color: #f56c6c;">*</span>为必填项）</h4>
+            <el-table :data="kpParseResult.data" border stripe max-height="400" style="width: 100%">
+
+              <!-- 知识点名称 -->
+              <el-table-column label="知识点名称" width="180">
+                <template #default="{ row }">
+                  <el-input v-model="row.name" size="small" placeholder="必填" :class="{ 'is-error': !row.name }" />
+                </template>
+              </el-table-column>
+
+              <!-- 父知识点（下拉选择） -->
+              <el-table-column label="父知识点" width="180">
+                <template #default="{ row }">
+                  <el-select v-model="row.parentId" size="small" placeholder="可选" clearable filterable
+                    style="width: 100%">
+                    <el-option v-for="kp in flatKnowledgePoints" :key="kp.id" :label="kp.name" :value="kp.id" />
+                  </el-select>
+                </template>
+              </el-table-column>
+
+              <!-- 描述 -->
+              <el-table-column label="描述" min-width="200">
+                <template #default="{ row }">
+                  <el-input v-model="row.description" size="small" placeholder="可选" />
+                </template>
+              </el-table-column>
+
+              <!-- 排序 -->
+              <el-table-column label="排序" width="80">
+                <template #default="{ row }">
+                  <el-input-number v-model="row.sortOrder" :min="0" :max="999" :step="1" size="small"
+                    controls-position="right" style="width: 100%" />
+                </template>
+              </el-table-column>
+
+              <!-- 状态提示 -->
+              <el-table-column label="状态" width="80" fixed="right">
+                <template #default="{ row }">
+                  <el-tag v-if="!row.name" type="danger" size="small">
+                    缺必填
+                  </el-tag>
+                  <el-tag v-else type="success" size="small">就绪</el-tag>
+                </template>
+              </el-table-column>
             </el-table>
           </div>
 
-          <div class="confirm-buttons" v-if="kpParseResult.data?.length">
-            <el-button type="success" @click="confirmKpImport" :loading="kpSaving">确认导入</el-button>
+          <!-- 确认按钮 -->
+          <div v-if="kpParseResult.data && kpParseResult.data.length > 0" class="confirm-buttons">
+            <el-button type="success" @click="confirmKpImport" :loading="kpSaving">
+              <el-icon>
+                <Check />
+              </el-icon> 确认导入 ({{ kpParseResult.data.length }}条)
+            </el-button>
             <el-button type="danger" @click="cancelKpImport">取消</el-button>
           </div>
         </div>
@@ -1617,5 +1748,22 @@ onMounted(() => {
   .kp-suggestion {
     margin-top: 20px;
   }
+}
+
+.current-course-info,
+.course-warning {
+  margin-bottom: 20px;
+}
+
+.match-success {
+  font-size: 11px;
+  color: #67c23a;
+  margin-top: 2px;
+}
+
+.match-error {
+  font-size: 11px;
+  color: #f56c6c;
+  margin-top: 2px;
 }
 </style>

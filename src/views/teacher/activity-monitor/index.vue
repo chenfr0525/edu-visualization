@@ -5,7 +5,7 @@ import * as echarts from 'echarts'
 import { exportToPDF, exportActivityDataToExcel, exportActivityWarningToExcel, exportActivityRankingToExcel } from '@/utils/export'
 import OverviewCard from './component/overview-card.vue'
 import StatItem from './component/stat-item.vue'
-import { tActivityMonitorApi, tDashboardApi } from '@/api/index.js'
+import { fileApi, tActivityMonitorApi, tDashboardApi } from '@/api/index.js'
 import { useAuthStore } from '@/stores/index.js'
 
 const authStore = useAuthStore()
@@ -66,7 +66,7 @@ let studentBehaviorChart = null
 
 // 导入相关
 const importDialogVisible = ref(false)
-const importType = ref('') // STUDY_DURATION 或 RESOURCE
+const importType = ref('') // 'STUDY' 或 'RESOURCE'
 const uploadRef = ref(null)
 const selectedFile = ref(null)
 const uploading = ref(false)
@@ -357,8 +357,11 @@ const initStudentDistributionChart = () => {
 }
 
 // ==================== 导入功能 ====================
-
 const showImportDialog = (type) => {
+  if (!searchModel.value.classId) {
+    ElMessage.warning('请先选择班级')
+    return
+  }
   importType.value = type
   parseResult.value = null
   selectedFile.value = null
@@ -368,24 +371,36 @@ const showImportDialog = (type) => {
   }, 100)
 }
 
+// 获取当前班级名称
+const getCurrentClassName = () => {
+  const cls = classList.value.find(c => c.id === searchModel.value.classId)
+  return cls ? cls.name : ''
+}
+
+// 处理文件变化
 const handleFileChange = (file) => {
   selectedFile.value = file.raw
   parseResult.value = null
 }
 
+// 上传并解析活跃度文件
 const uploadFile = async () => {
   if (!selectedFile.value) {
     ElMessage.warning('请先选择文件')
     return
   }
+  if (!searchModel.value.classId) {
+    ElMessage.warning('请先选择班级')
+    return
+  }
 
   uploading.value = true
   try {
-    const res = await tActivityMonitorApi.parseActivityFile(
+    const result = await fileApi.uploadFile(
       selectedFile.value,
-      importType.value
+      importType.value,  // 'STUDY' 或 'RESOURCE'
     )
-    parseResult.value = res.data
+    parseResult.value = result.data
 
     if (parseResult.value.success) {
       ElMessage.success(`解析成功！共 ${parseResult.value.data?.length || 0} 条数据`)
@@ -393,34 +408,71 @@ const uploadFile = async () => {
       ElMessage.error('解析失败，请检查文件格式')
     }
   } catch (error) {
-    console.error('解析失败:', error)
-    ElMessage.error(error.message || '解析失败')
+    ElMessageBox.alert(
+      error?.message || '导入完成，但存在失败项',
+      '导入结果详情',
+      {
+        confirmButtonText: '知道了',
+        type: 'warning',
+        dangerouslyUseHTMLString: false
+      }
+    )
   } finally {
     uploading.value = false
   }
 }
-
+// 确认导入活跃度数据
 const confirmImport = async () => {
   if (!parseResult.value?.data || parseResult.value.data.length === 0) {
     ElMessage.warning('没有可导入的数据')
     return
   }
 
+
+  // 校验所有行的必填字段
+  const invalidRows = []
+  parseResult.value.data.forEach((row, index) => {
+    if (!row.studentName || !row.activityDate) {
+      invalidRows.push(index + 1)
+    } else if (importType.value === 'STUDY' && (row.studyDuration === undefined || row.studyDuration === null)) {
+      invalidRows.push(index + 1)
+    } else if (importType.value === 'RESOURCE' && (row.resourceAccessCount === undefined || row.resourceAccessCount === null)) {
+      invalidRows.push(index + 1)
+    }
+  })
+  if (invalidRows.length > 0) {
+    ElMessage.error(`第 ${invalidRows.join(', ')} 行存在未填写的必填项，请补充完整后再导入`)
+    return
+  }
+
   try {
-    await ElMessageBox.confirm(`确认导入 ${parseResult.value.data.length} 条数据吗？`, '确认操作', {
+    await ElMessageBox.confirm(`确认导入 ${parseResult.value.data.length} 条${importType.value === 'STUDY' ? '学习时长' : '资源访问'}数据吗？`, '确认操作', {
       confirmButtonText: '确认',
       cancelButtonText: '取消',
       type: 'warning'
     })
 
     saving.value = true
-    const res = await tActivityMonitorApi.confirmActivityImport(parseResult.value.data)
+    // 准备导入数据 - 只保留需要的字段
+    const importData = parseResult.value.data.map(row => ({
+      studentName: row.studentName,
+      activityDate: row.activityDate,
+      studyDuration: importType.value === 'STUDY' ? row.studyDuration : null,
+      resourceAccessCount: importType.value === 'RESOURCE' ? row.resourceAccessCount : null,
+      description: row.description || null
+    }))
+
+    // 使用统一确认接口
+    const res = await fileApi.confirmInsert(
+      importData,
+      importType.value  // 'STUDY' 或 'RESOURCE'
+    )
 
     if (res.data && res.data.success) {
       ElMessage.success(res.data.message || '导入成功')
+      importDialogVisible.value = false
       parseResult.value = null
       selectedFile.value = null
-      importDialogVisible.value = false
       uploadRef.value?.clearFiles()
       // 刷新数据
       await fetchAllData()
@@ -429,26 +481,60 @@ const confirmImport = async () => {
     }
   } catch (error) {
     if (error !== 'cancel') {
-      console.error('导入失败:', error)
+      console.error('导入失败', error)
       ElMessage.error(error.message || '导入失败')
     }
   } finally {
     saving.value = false
   }
 }
-
-const cancelImport = () => {
-  parseResult.value = null
-  selectedFile.value = null
-  uploadRef.value?.clearFiles()
-  importDialogVisible.value = false
-  ElMessage.info('已取消导入')
+// 取消导入
+const cancelImport = async () => {
+  try {
+    await ElMessageBox.confirm('确认要取消导入吗？取消后数据将消失', '确认操作', {
+      confirmButtonText: '确认',
+      cancelButtonText: '取消',
+      type: 'warning'
+    })
+    parseResult.value = null
+    selectedFile.value = null
+    uploadRef.value?.clearFiles()
+    importDialogVisible.value = false
+    ElMessage.success('已取消')
+  } catch (error) {
+    if (error !== 'cancel') {
+      console.error('取消失败', error)
+    }
+  }
 }
 
+// 清空文件
 const clearFile = () => {
   selectedFile.value = null
   parseResult.value = null
   uploadRef.value?.clearFiles()
+}
+
+// 重置导入弹窗数据
+const resetImportData = () => {
+  parseResult.value = null
+  selectedFile.value = null
+  uploadRef.value?.clearFiles()
+}
+
+// 文件上传前的校验
+const beforeUpload = (file) => {
+  const isValidSize = file.size / 1024 / 1024 < 10
+  if (!isValidSize) {
+    ElMessage.error('文件大小不能超过 10MB')
+    return false
+  }
+  const isValidType = file.name.endsWith('.xlsx') || file.name.endsWith('.xls') || file.name.endsWith('.csv')
+  if (!isValidType) {
+    ElMessage.error('仅支持 .xlsx, .xls, .csv 格式文件')
+    return false
+  }
+  return true
 }
 
 // ==================== 导出功能 ====================
@@ -602,7 +688,7 @@ watch(classComparison, () => {
       </el-select>
 
       <div class="filter-right">
-        <el-button type="primary" plain @click="showImportDialog('STUDY_DURATION')">
+        <el-button type="primary" plain @click="showImportDialog('STUDY')">
           <i class="fas fa-clock"></i> 导入学习时长
         </el-button>
         <el-button type="primary" plain @click="showImportDialog('RESOURCE')">
@@ -811,64 +897,143 @@ watch(classComparison, () => {
       </div>
     </el-drawer>
 
-    <!-- 导入数据弹窗 -->
-    <el-dialog v-model="importDialogVisible" :title="importType === 'STUDY_DURATION' ? '导入学习时长数据' : '导入资源访问数据'"
-      width="750px">
+    <!-- 活跃度数据批量导入弹窗 -->
+    <el-dialog v-model="importDialogVisible" :title="importType === 'STUDY' ? '导入学习时长数据' : '导入资源访问数据'" width="1000px"
+      @close="resetImportData">
       <div class="import-content">
         <div class="import-tips">
           <i class="fas fa-info-circle"></i>
           <div>
-            <h4>导入说明</h4>
-            <p v-if="importType === 'STUDY_DURATION'">
-              必填：学生（学号或姓名）、日期、学习时长（分钟）<br>
-              格式示例：张三,2024-12-20,120
+            <h4>{{ importType === 'STUDY' ? '学习时长导入说明' : '资源访问导入说明' }}</h4>
+            <p v-if="importType === 'STUDY'">
+              必填：学生（学号或姓名）、日期、学习时长（分钟） <span style="color: #f56c6c;">*</span><br>
+              非必填：描述<br>
+              格式示例：张三,2024-12-20,120<br>
+              匹配规则：优先按学号匹配，其次按姓名<br>
+              支持格式：.xlsx, .xls, .csv
             </p>
             <p v-else>
-              必填：学生（学号或姓名）、日期、访问次数<br>
-              格式示例：张三,2024-12-20,15
+              必填：学生（学号或姓名）、日期、访问次数 <span style="color: #f56c6c;">*</span><br>
+              非必填：描述<br>
+              格式示例：张三,2024-12-20,15<br>
+              匹配规则：优先按学号匹配，其次按姓名<br>
+              支持格式：.xlsx, .xls, .csv
             </p>
           </div>
         </div>
 
-        <div class="import-actions">
-          <el-upload ref="uploadRef" drag :auto-upload="false" :on-change="handleFileChange" :limit="1"
-            accept=".xlsx,.xls,.csv,.txt">
+        <!-- 班级选择提示 -->
+        <div class="current-class-info" v-if="searchModel.classId">
+          <el-alert :title="`当前班级：${getCurrentClassName()}`" type="info" :closable="false" show-icon />
+        </div>
+        <div v-else class="class-warning">
+          <el-alert title="请先在上方筛选栏选择班级，再进行活跃度数据导入" type="warning" :closable="false" show-icon />
+        </div>
+
+        <div class="import-actions" v-if="searchModel.classId">
+          <el-upload ref="uploadRef" class="upload-demo" drag :auto-upload="false" :on-change="handleFileChange"
+            :before-upload="beforeUpload" :limit="1" accept=".xlsx,.xls,.csv">
             <i class="fas fa-cloud-upload-alt"></i>
             <div class="el-upload__text">将文件拖到此处，或<em>点击上传</em></div>
+            <template #tip>
+              <div class="el-upload__tip">支持 .xlsx, .csv 格式文件，文件大小不超过10MB</div>
+            </template>
           </el-upload>
           <div v-if="selectedFile" class="file-info">
-            <el-alert :title="`已选择：${selectedFile.name}`" type="info" :closable="false" />
+            <el-alert :title="`已选择文件：${selectedFile.name}`" type="info" :closable="false" />
           </div>
         </div>
 
-        <div v-if="selectedFile" class="action-buttons">
+        <!-- 操作按钮 -->
+        <div v-if="selectedFile && searchModel.classId" class="action-buttons">
           <el-button type="primary" @click="uploadFile" :loading="uploading">
-            开始解析
+            <el-icon>
+              <Upload />
+            </el-icon> 开始解析
           </el-button>
           <el-button @click="clearFile">清空</el-button>
         </div>
 
-        <!-- 解析结果 -->
+        <!-- 解析结果展示 -->
         <div v-if="parseResult" class="parse-result">
           <el-divider>解析结果</el-divider>
-          <el-alert :title="parseResult.success ? '解析成功' : '解析失败'" :type="parseResult.success ? 'success' : 'error'"
-            :closable="false" />
-          <div class="summary">{{ parseResult.summary }}</div>
 
-          <div v-if="parseResult.data?.length" class="data-table">
-            <h4>解析数据预览（请确认）</h4>
-            <el-table :data="parseResult.data" border stripe max-height="300" size="small">
-              <el-table-column prop="studentName" label="学生" width="120" />
-              <el-table-column prop="activityDate" label="日期" width="120" />
-              <el-table-column v-if="importType === 'STUDY_DURATION'" prop="studyDuration" label="学习时长(分钟)"
-                width="120" />
-              <el-table-column v-else prop="resourceAccessCount" label="访问次数" width="120" />
-              <el-table-column prop="description" label="描述" min-width="200" show-overflow-tooltip />
+          <el-alert v-if="parseResult.success" title="解析成功" type="success" :closable="false" />
+          <el-alert v-else title="解析失败" type="error" :closable="false">
+            <template #default>
+              <div v-for="(error, idx) in parseResult.errors" :key="idx" class="error-item">
+                {{ error.errorMessage }}
+              </div>
+            </template>
+          </el-alert>
+
+          <div class="summary"><strong>摘要：</strong>{{ parseResult.summary }}</div>
+
+          <!-- 解析出的数据表格 -->
+          <div v-if="parseResult.data && parseResult.data.length > 0" class="data-table">
+            <h4>解析出的数据（请确认，<span style="color: #f56c6c;">*</span>为必填项）</h4>
+            <el-table :data="parseResult.data" border stripe max-height="400" style="width: 100%">
+
+              <!-- 学生（学号或姓名） -->
+              <el-table-column label="学生" width="150">
+                <template #default="{ row }">
+                  <el-input v-model="row.studentName" size="small" placeholder="学号或姓名"
+                    :class="{ 'is-error': !row.studentName }" />
+                  <div v-if="row.studentId" class="match-success">✓ 已匹配</div>
+                  <div v-if="row._error_studentName" class="match-error">{{ row._error_studentName }}</div>
+                </template>
+              </el-table-column>
+
+              <!-- 日期 -->
+              <el-table-column label="日期" width="140">
+                <template #default="{ row }">
+                  <el-date-picker v-model="row.activityDate" type="date" size="small" placeholder="必填"
+                    format="YYYY-MM-DD" value-format="YYYY-MM-DD" :class="{ 'is-error': !row.activityDate }"
+                    style="width: 100%" />
+                </template>
+              </el-table-column>
+
+              <!-- 学习时长 或 访问次数 -->
+              <el-table-column :label="importType === 'STUDY' ? '学习时长(分钟)' : '访问次数'" width="140">
+                <template #default="{ row }">
+                  <el-input-number v-if="importType === 'STUDY'" v-model="row.studyDuration" :min="0" :max="1000"
+                    :step="10" size="small" controls-position="right" style="width: 100%"
+                    :class="{ 'is-error': row.studyDuration === undefined || row.studyDuration === null }" />
+                  <el-input-number v-else v-model="row.resourceAccessCount" :min="0" :max="999" :step="1" size="small"
+                    controls-position="right" style="width: 100%"
+                    :class="{ 'is-error': row.resourceAccessCount === undefined || row.resourceAccessCount === null }" />
+                </template>
+              </el-table-column>
+
+              <!-- 描述 -->
+              <el-table-column label="描述" min-width="200">
+                <template #default="{ row }">
+                  <el-input v-model="row.description" size="small" placeholder="可选" />
+                </template>
+              </el-table-column>
+
+              <!-- 状态提示 -->
+              <el-table-column label="状态" width="100" fixed="right">
+                <template #default="{ row }">
+                  <el-tag
+                    v-if="!row.studentName || !row.activityDate ||
+                      (importType === 'STUDY' && (row.studyDuration === undefined || row.studyDuration === null)) ||
+                      (importType !== 'STUDY' && (row.resourceAccessCount === undefined || row.resourceAccessCount === null))"
+                    type="danger" size="small">缺必填</el-tag>
+                  <el-tag v-else-if="!row.studentId" type="warning" size="small">学生待匹配</el-tag>
+                  <el-tag v-else type="success" size="small">就绪</el-tag>
+                </template>
+              </el-table-column>
             </el-table>
           </div>
 
-          <div class="confirm-buttons" v-if="parseResult.data?.length">
-            <el-button type="success" @click="confirmImport" :loading="saving">确认导入</el-button>
+          <!-- 确认按钮 -->
+          <div v-if="parseResult.data && parseResult.data.length > 0" class="confirm-buttons">
+            <el-button type="success" @click="confirmImport" :loading="saving">
+              <el-icon>
+                <Check />
+              </el-icon> 确认导入 ({{ parseResult.data.length }}条)
+            </el-button>
             <el-button type="danger" @click="cancelImport">取消</el-button>
           </div>
         </div>
@@ -1120,6 +1285,23 @@ watch(classComparison, () => {
 .rank-bronze {
   font-weight: bold;
   color: #409eff;
+}
+
+.current-class-info,
+.class-warning {
+  margin-bottom: 20px;
+}
+
+.match-success {
+  font-size: 11px;
+  color: #67c23a;
+  margin-top: 2px;
+}
+
+.match-error {
+  font-size: 11px;
+  color: #f56c6c;
+  margin-top: 2px;
 }
 
 @media (max-width: 768px) {

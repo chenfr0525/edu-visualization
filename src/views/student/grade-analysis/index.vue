@@ -128,44 +128,25 @@ const gradeTrendOption = computed(() => {
     title: {
       text: `${myGradeTrend.value?.courseName || '课程'} - 成绩趋势`,
       left: 'center',
-      textStyle: {
-        fontSize: 14,
-        fontWeight: 'normal'
-      }
+      textStyle: { fontSize: 14, fontWeight: 'normal' }
     },
-    tooltip: {
-      trigger: 'axis',
-      axisPointer: {
-        type: 'shadow'
-      }
-    },
+    tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
     legend: {
-      data: ['我的成绩', '班级平均分', '我的排名'],
+      data: ['我的成绩', '班级平均分'],
       left: 'left'
     },
-    grid: {
-      left: '10%',
-      right: '5%',
-      top: '15%',
-      bottom: '5%',
-      containLabel: true
-    },
+    grid: { left: '10%', right: '5%', top: '15%', bottom: '5%', containLabel: true },
     xAxis: {
       type: 'category',
       data: myGradeTrend.value?.examNames || [],
-      axisLabel: {
-        rotate: 15,
-        fontSize: 11
-      }
+      axisLabel: { rotate: 15, fontSize: 11 }
     },
     yAxis: {
       type: 'value',
       name: '分数',
       min: 0,
       max: 100,
-      axisLabel: {
-        formatter: '{value}分'
-      }
+      axisLabel: { formatter: '{value}分' }
     },
     series: [
       {
@@ -177,9 +158,7 @@ const gradeTrendOption = computed(() => {
         symbol: 'circle',
         symbolSize: 8,
         itemStyle: { color: '#409EFF' },
-        areaStyle: {
-          color: 'rgba(64, 158, 255, 0.1)'
-        }
+        areaStyle: { color: 'rgba(64, 158, 255, 0.1)' }
       },
       {
         name: '班级平均分',
@@ -190,21 +169,10 @@ const gradeTrendOption = computed(() => {
         symbol: 'diamond',
         symbolSize: 8,
         itemStyle: { color: '#E6A23C' }
-      },
-      {
-        name: '我的排名',
-        type: 'line',
-        data: myGradeTrend.value?.myRanks || [],
-        smooth: true,
-        lineStyle: { color: '#2D7E5E', width: 2, type: 'dashed' },
-        symbol: 'diamond',
-        symbolSize: 8,
-        itemStyle: { color: '#2D7E5E' }
       }
     ]
   }
 })
-
 const loadOverallSuggestion = async (forceRefresh = false) => {
   if (!userInfo.value?.id) return
 
@@ -558,11 +526,8 @@ onMounted(async () => {
                 <h4>总分：{{ currentExam.totalScore }}</h4>
               </div>
               <div class="echart-desc">
-                <div style="font-size: 3rem; font-weight: 700; color: #1d4e7c">
-                  {{ currentExam.scoreAnalysis.rank }}
-                </div>
-                <div style="font-size: 1.1rem; margin-top: 10px">
-                  超过全班 <strong>{{ Math.round((1 - currentExam.scoreAnalysis.rank / 45) * 100) }}%</strong> 的同学
+                <div style="font-size: 2rem; font-weight: 700; color: #1d4e7c">
+                  班级第 {{ currentExam.scoreAnalysis.rank }} 名
                 </div>
               </div>
             </div>

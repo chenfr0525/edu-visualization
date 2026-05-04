@@ -4,124 +4,206 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import * as echarts from 'echarts'
 import InfoItem from './component/info-item.vue'
 import { exportExamListToExcel, exportExamScoresToExcel, formatExamDate } from '@/utils/export'
-import { tExamApi, tDashboardApi, unifiedAiApi } from '@/api/index.js'
+import { tExamApi, tDashboardApi, unifiedAiApi, fileApi, tCourseApi } from '@/api/index.js'
 import StatsCard from '../user-manage/component/stats-card.vue'
 import AiAnalysis from '@/components/AiAnalysis.vue'
 
 const loading = ref(false)
-const saving = ref(false)
-const analysisContentRef = ref(null)
-const importDialogVisible = ref(false)
-const showImportDialog = () => {
-  importDialogVisible.value = true
-}
-// 前端提交前处理数据
-function processExamData(examData) {
-  const today = new Date().toISOString().split('T')[0];
+const examImportDialogVisible = ref(false)
+const examUploadRef = ref(null)
+const selectedExamFile = ref(null)
+const examUploading = ref(false)
+const examParseResult = ref(null)
+const examSaving = ref(false)
+// 课程知识点映射（用于快速查找）
+const courseKnowledgePointsMap = ref(new Map())
+const allKnowledgePoints = ref([])
 
-  // 确保 examList 是数组
-  if (!Array.isArray(examData)) {
-    examData = [examData];
+// 加载所有知识点（按课程分组）
+const fetchAllKnowledgePoints = async () => {
+  try {
+    // 获取所有课程的知识点
+    const promises = courseList.value.map(async (course) => {
+      const res = await tCourseApi.getKnowledgePoints(course.id)
+      return { courseId: course.id, list: res.data || [] }
+    })
+    const results = await Promise.all(promises)
+    const map = new Map()
+    results.forEach(result => {
+      map.set(result.courseId, result.list)
+    })
+    courseKnowledgePointsMap.value = map
+
+    // 同时保存扁平化的所有知识点
+    allKnowledgePoints.value = results.flatMap(r => r.list)
+  } catch (error) {
+    console.error('加载知识点失败:', error)
   }
-
-  return examData.map(exam => ({
-    ...exam,
-    examDate: exam.examDate ? exam.examDate.split('T')[0] : null, // 从 ISO 格式提取日期
-    startTime: exam.startTime ? `${today} ${exam.startTime}` : null,
-    endTime: exam.endTime ? `${today} ${exam.endTime}` : null,
-    classname: exam.classname || null,
-    description: exam.description || null
-  }));
 }
-;
-//考试录入
-//文件解析模块
-const beforeUpload = (file) => {
-  const isValidSize = file.size / 1024 / 1024 < 10
-  if (!isValidSize) {
-    ElMessage.error('文件大小不能超过 10MB')
-    return false
-  }
-  return true
-}
-// 文件变化处理
-const handleFileChange = (file, fileList) => {
-  selectedFile.value = file.raw
-  parseResult.value = null  // 清空之前的解析结果
+// 打开考试导入弹窗
+const showExamImportDialog = () => {
+  examParseResult.value = null
+  selectedExamFile.value = null
+  examImportDialogVisible.value = true
+  setTimeout(() => {
+    examUploadRef.value?.clearFiles()
+  }, 100)
 }
 
-// 上传文件并解析
-const uploadFile = async () => {
-  if (!selectedFile.value) {
+// 处理文件变化
+const handleExamFileChange = (file) => {
+  selectedExamFile.value = file.raw
+  examParseResult.value = null
+}
+
+// 上传并解析考试文件
+const uploadExamFile = async () => {
+  if (!selectedExamFile.value) {
     ElMessage.warning('请先选择文件')
     return
   }
 
-  uploading.value = true
+  examUploading.value = true
   try {
-    const result = await tExamApi.uploadFile(
-      selectedFile.value,
-      "考试信息录入",
-    )
-    parseResult.value = result.data
+    const result = await fileApi.uploadFile(selectedExamFile.value, "exam")
+    examParseResult.value = result.data
 
-    if (parseResult.value.success) {
-      ElMessage.success(`解析成功！共 ${parseResult.value.data?.length || 0} 条数据`)
+    // 为每行数据添加默认值
+    if (examParseResult.value.data) {
+      for (const row of examParseResult.value.data) {
+        row.fullScore = row.fullScore || 100
+        row.passScore = row.passScore || Math.floor(row.fullScore * 0.6)
+        row.knowledgePointIds = row.knowledgePointIds || []
+
+        // 如果AI返回了知识点名称，尝试匹配知识点ID
+        if (row.knowledgePointNames && !row.knowledgePointIds?.length) {
+          const kpNames = Array.isArray(row.knowledgePointNames)
+            ? row.knowledgePointNames
+            : row.knowledgePointNames.split(/[,，、]/)
+
+          const matchedIds = []
+          const courseKps = courseKnowledgePointsMap.value.get(row.courseId) || []
+
+          for (const kpName of kpNames) {
+            const matched = courseKps.find(kp =>
+              kp.name === kpName || kp.name.includes(kpName) || kpName.includes(kp.name)
+            )
+            if (matched) {
+              matchedIds.push(matched.id)
+            }
+          }
+          row.knowledgePointIds = matchedIds
+        }
+      }
+    }
+
+
+
+    if (examParseResult.value.success) {
+      ElMessage.success(`解析成功！共 ${examParseResult.value.data?.length || 0} 条数据`)
     } else {
       ElMessage.error('解析失败，请检查文件格式')
     }
   } catch (error) {
-    console.log("解析失败", error)
     console.error('上传失败', error)
     ElMessage.error(error.message || '上传失败，请稍后重试')
   } finally {
-    uploading.value = false
+    examUploading.value = false
   }
 }
 
+// 确认导入考试
+const confirmExamImport = async () => {
+  if (!examParseResult.value?.data || examParseResult.value.data.length === 0) {
+    ElMessage.warning('没有可导入的数据')
+    return
+  }
 
-// 确认插入数据库
-const confirmInsert = async () => {
+  // 校验所有行的必填字段
+  const invalidRows = []
+  examParseResult.value.data.forEach((row, index) => {
+    if (!row.name || !row.type || !row.courseId || !row.examDate) {
+      invalidRows.push(index + 1)
+    }
+  })
+
+  if (invalidRows.length > 0) {
+    ElMessage.error(`第 ${invalidRows.join(', ')} 行存在未填写的必填项，请补充完整后再导入`)
+    return
+  }
 
   try {
-    await ElMessageBox.confirm('确认要将这些导入吗？', '确认操作', {
+    await ElMessageBox.confirm(`确认导入 ${examParseResult.value.data.length} 条考试数据吗？`, '确认操作', {
       confirmButtonText: '确认',
       cancelButtonText: '取消',
       type: 'warning'
     })
-    // 确认插入
-    const res = await tExamApi.confirmInsert(
-      processExamData(parseResult.value.data), "exam"
-    )
-    if (res.data === '数据导入成功') {
-      ElMessage.success(res.data)
-      parseResult.value = null
-      selectedFile.value = null
-      uploadRef.value?.clearFiles()
-      handleFilterChange()
+
+    examSaving.value = true
+    // 准备导入数据
+    const importData = examParseResult.value.data.map(row => ({
+      name: row.name,
+      type: row.type,
+      courseId: row.courseId,
+      examDate: row.examDate,
+      classId: row.classId || null,
+      fullScore: row.fullScore || 100,
+      passScore: row.passScore || Math.floor((row.fullScore || 100) * 0.6),
+      description: row.description || null,
+      knowledgePointIds: row.knowledgePointIds || null
+    }))
+
+    const res = await fileApi.confirmInsert(importData, "exam")
+
+    if (res.data && res.data.success) {
+      ElMessage.success(res.data.message || '导入成功')
+      examImportDialogVisible.value = false
+      examParseResult.value = null
+      selectedExamFile.value = null
+      examUploadRef.value?.clearFiles()
+      // 刷新列表
+      await fetchExamList()
+      await fetchStatistics()
     } else {
-      parseResult.value.summary = res.data
-      ElMessage.error(res.data)
+      ElMessageBox.alert(
+        res.data?.message || '导入完成，但存在失败项',
+        '导入结果详情',
+        {
+          confirmButtonText: '知道了',
+          type: 'warning',
+          dangerouslyUseHTMLString: false
+        }
+      )
     }
   } catch (error) {
-    console.error('插入失败', error)
-    ElMessage.error(error.message || '插入失败')
+    ElMessageBox.alert(
+      error?.message || '导入完成，但存在失败项',
+      '导入结果详情',
+      {
+        confirmButtonText: '知道了',
+        type: 'warning',
+        dangerouslyUseHTMLString: false
+      }
+    )
+  } finally {
+    examSaving.value = false
   }
+  波
 }
 
-// 取消插入
-const cancelInsert = async () => {
+// 取消导入
+const cancelExamImport = async () => {
   try {
-    await ElMessageBox.confirm('确认要取消并导入这些数据吗？取消后数据将消失', '确认操作', {
+    await ElMessageBox.confirm('确认要取消导入吗？取消后数据将消失', '确认操作', {
       confirmButtonText: '确认',
       cancelButtonText: '取消',
       type: 'warning'
     })
-    ElMessage.success('已取消，数据已清理')
-    parseResult.value = null
-    selectedFile.value = null
-    uploadRef.value?.clearFiles()
-
+    examParseResult.value = null
+    selectedExamFile.value = null
+    examUploadRef.value?.clearFiles()
+    examImportDialogVisible.value = false
+    ElMessage.success('已取消')
   } catch (error) {
     if (error !== 'cancel') {
       console.error('取消失败', error)
@@ -130,17 +212,29 @@ const cancelInsert = async () => {
 }
 
 // 清空文件
-const clearFile = () => {
-  selectedFile.value = null
-  parseResult.value = null
-  uploadRef.value?.clearFiles()
+const clearExamFile = () => {
+  selectedExamFile.value = null
+  examParseResult.value = null
+  examUploadRef.value?.clearFiles()
 }
 
-// 响应式数据
-const uploadRef = ref(null)
-const selectedFile = ref(null)
-const uploading = ref(false)
-const parseResult = ref(null)
+// 重置导入弹窗数据
+const resetExamImportData = () => {
+  examParseResult.value = null
+  selectedExamFile.value = null
+  examUploadRef.value?.clearFiles()
+}
+
+const beforeUpload = (file) => {
+  // 可选的文件校验逻辑
+  const isValid = file.type === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' ||
+    file.type === 'application/vnd.ms-excel' ||
+    file.type === 'text/csv'
+  if (!isValid) {
+    ElMessage.error('只支持 .xlsx, .xls, .csv 格式的文件')
+  }
+  return isValid
+}
 
 // ==================== 考试成绩导入相关 ====================
 const scoreImportDialogVisible = ref(false)
@@ -150,38 +244,45 @@ const scoreUploading = ref(false)
 const scoreParseResult = ref(null)
 const scoreSaving = ref(false)
 const currentExamForImport = ref(null)  // 当前要导入成绩的考试
+const selectedExamForScore = ref(null)
+const selectedExamInfo = ref(null)
 
-// 打开成绩导入弹窗
-const showScoreImportDialog = (exam) => {
-  currentExamForImport.value = exam
-  scoreParseResult.value = null
-  selectedScoreFile.value = null
-  scoreImportDialogVisible.value = true
-  // 清空上传组件
-  setTimeout(() => {
-    scoreUploadRef.value?.clearFiles()
-  }, 100)
+
+// 选择考试后获取考试信息
+const handleExamChange = (examId) => {
+  const exam = examList.value.find(e => e.id === examId)
+  if (exam) {
+    selectedExamInfo.value = {
+      id: exam.id,
+      name: exam.name,
+      fullScore: exam.fullScore || 100,
+      passScore: exam.passScore || 60,
+      className: exam.className
+    }
+  }
 }
 
-// 处理成绩文件变化
-const handleScoreFileChange = (file, fileList) => {
+// 处理文件变化
+const handleScoreFileChange = (file) => {
   selectedScoreFile.value = file.raw
   scoreParseResult.value = null
 }
 
-// 上传成绩文件并解析
+// 上传并解析成绩文件
 const uploadScoreFile = async () => {
   if (!selectedScoreFile.value) {
     ElMessage.warning('请先选择文件')
     return
   }
 
+  if (!selectedExamForScore.value) {
+    ElMessage.warning('请先选择考试')
+    return
+  }
+
   scoreUploading.value = true
   try {
-    const result = await tExamApi.uploadGradeFile(
-      selectedScoreFile.value,
-      "考试成绩"
-    )
+    const result = await fileApi.uploadFile(selectedScoreFile.value, "exam_grade")
     scoreParseResult.value = result.data
 
     if (scoreParseResult.value.success) {
@@ -197,58 +298,95 @@ const uploadScoreFile = async () => {
   }
 }
 
+const masteryClass = computed(() => {
+  const excellentRate = analysisDetailData.value?.stats?.excellentRate || 0
+  if (excellentRate >= 80) return 'good'
+  if (excellentRate >= 60) return 'warning'
+  return 'poor'
+})
+
 // 确认导入成绩
-const confirmScoreInsert = async () => {
+const confirmScoreImport = async () => {
   if (!scoreParseResult.value?.data || scoreParseResult.value.data.length === 0) {
     ElMessage.warning('没有可导入的数据')
     return
   }
-  console.log('要导入的成绩数据', currentExamForImport.value)
-  if (!currentExamForImport.value?.id) {
-    ElMessage.warning('请选择要导入的考试')
+
+  if (!selectedExamForScore.value) {
+    ElMessage.warning('请选择考试')
+    return
+  }
+
+  // 校验所有行的必填字段
+  const invalidRows = []
+  scoreParseResult.value.data.forEach((row, index) => {
+    if (!row.studentName || row.score === undefined || row.score === null) {
+      invalidRows.push(index + 1)
+    }
+  })
+
+  if (invalidRows.length > 0) {
+    ElMessage.error(`第 ${invalidRows.join(', ')} 行存在未填写的必填项，请补充完整后再导入`)
     return
   }
 
   try {
-    await ElMessageBox.confirm('确认要将这些成绩导入吗？', '确认操作', {
+    await ElMessageBox.confirm(`确认将 ${scoreParseResult.value.data.length} 条成绩导入到考试「${selectedExamInfo.value?.name}」吗？`, '确认操作', {
       confirmButtonText: '确认',
       cancelButtonText: '取消',
       type: 'warning'
     })
 
     scoreSaving.value = true
-    const res = await tExamApi.confirmGradeInsert(
-      currentExamForImport.value?.id,
-      scoreParseResult.value.data,
-      "exam_grade"
-    )
+    // 准备导入数据
+    const importData = scoreParseResult.value.data.map(row => ({
+      studentName: row.studentName,
+      score: row.score,
+      remark: row.remark || null
+    }))
 
-    if (res.data?.success) {
+    const res = await tExamApi.confirmGradeInsert(selectedExamForScore.value, importData, "exam_grade")
+
+    if (res.data === "数据导入成功") {
       ElMessage.success(res.data.message || '成绩导入成功')
+      scoreImportDialogVisible.value = false
       scoreParseResult.value = null
       selectedScoreFile.value = null
-      scoreImportDialogVisible.value = false
+      selectedExamForScore.value = null
+      selectedExamInfo.value = null
       scoreUploadRef.value?.clearFiles()
-      // 刷新成绩列表
-      await loadExamScoreData()
-      // 刷新考试列表（更新统计数据）
+      // 刷新数据
       await fetchExamList()
       await fetchStatistics()
     } else {
-      ElMessage.error(res.data?.message || '导入失败')
+      ElMessageBox.alert(
+        res.data?.message || '导入完成，但存在失败项',
+        '导入结果详情',
+        {
+          confirmButtonText: '知道了',
+          type: 'warning',
+          dangerouslyUseHTMLString: false
+        }
+      )
     }
+
   } catch (error) {
-    if (error !== 'cancel') {
-      console.error('导入失败', error)
-      ElMessage.error(error.message || '导入失败')
-    }
+    ElMessageBox.alert(
+      error?.message || '导入完成，但存在失败项',
+      '导入结果详情',
+      {
+        confirmButtonText: '知道了',
+        type: 'warning',
+        dangerouslyUseHTMLString: false
+      }
+    )
   } finally {
     scoreSaving.value = false
   }
 }
 
-// 取消成绩导入
-const cancelScoreInsert = async () => {
+// 取消导入
+const cancelScoreImport = async () => {
   try {
     await ElMessageBox.confirm('确认要取消导入吗？取消后数据将消失', '确认操作', {
       confirmButtonText: '确认',
@@ -258,6 +396,7 @@ const cancelScoreInsert = async () => {
     scoreParseResult.value = null
     selectedScoreFile.value = null
     scoreUploadRef.value?.clearFiles()
+    scoreImportDialogVisible.value = false
     ElMessage.success('已取消')
   } catch (error) {
     if (error !== 'cancel') {
@@ -266,12 +405,49 @@ const cancelScoreInsert = async () => {
   }
 }
 
-// 清空成绩文件
+// 清空文件
 const clearScoreFile = () => {
   selectedScoreFile.value = null
   scoreParseResult.value = null
   scoreUploadRef.value?.clearFiles()
 }
+
+// 重置导入弹窗数据
+const resetScoreImportData = () => {
+  scoreParseResult.value = null
+  selectedScoreFile.value = null
+  selectedExamForScore.value = null
+  selectedExamInfo.value = null
+  scoreUploadRef.value?.clearFiles()
+}
+
+// 当前课程的知识点列表
+const currentCourseKnowledgePoints = ref([])
+
+// 课程切换时加载知识点
+const onExamFormCourseChange = async (courseId) => {
+  if (!courseId) {
+    currentCourseKnowledgePoints.value = []
+    examForm.value.knowledgePointIds = []
+    return
+  }
+  examForm.value.knowledgePointIds = []
+
+  // 先从缓存获取
+  if (courseKnowledgePointsMap.value.has(courseId)) {
+    currentCourseKnowledgePoints.value = courseKnowledgePointsMap.value.get(courseId)
+  } else {
+    try {
+      const res = await tCourseApi.getKnowledgePoints(courseId)
+      currentCourseKnowledgePoints.value = res.data || []
+      courseKnowledgePointsMap.value.set(courseId, currentCourseKnowledgePoints.value)
+    } catch (error) {
+      console.error('加载知识点失败:', error)
+    }
+  }
+}
+
+
 
 // 考试AI分析数据
 const examAiAnalysis = ref({})
@@ -343,7 +519,6 @@ const classList = ref([])
 const courseList = ref([])
 
 const examDialogVisible = ref(false)
-const analysisDialogVisible = ref(false)
 const drawerVisible = ref(false)
 const analysisDetailData = ref(null)
 const viewScoresDialogVisible = ref(false)
@@ -452,7 +627,18 @@ const loadExamScoreData = async () => {
 }
 
 const createExam = async (data) => {
-  const res = await tExamApi.createExam(data)
+  const submitData = {
+    name: data.name,
+    type: data.type,
+    classId: data.classId,
+    courseId: data.courseId,
+    examDate: data.examDate,
+    fullScore: data.fullScore,
+    passScore: data.passScore,
+    description: data.description,
+    knowledgePointIds: data.knowledgePointIds || []  // 添加知识点ID
+  }
+  const res = await tExamApi.createExam(submitData)
   if (res && res.code === 200) {
     ElMessage.success('考试创建成功')
     return true
@@ -461,7 +647,19 @@ const createExam = async (data) => {
 }
 
 const updateExam = async (data) => {
-  const res = await tExamApi.updateExam(data.id, data)
+  const submitData = {
+    id: data.id,
+    name: data.name,
+    type: data.type,
+    classId: data.classId,
+    courseId: data.courseId,
+    examDate: data.examDate,
+    fullScore: data.fullScore,
+    passScore: data.passScore,
+    description: data.description,
+    knowledgePointIds: data.knowledgePointIds || []  // 添加知识点ID
+  }
+  const res = await tExamApi.updateExam(data.id, submitData)
   if (res && res.code === 200) {
     ElMessage.success('更新成功')
     return true
@@ -542,8 +740,7 @@ const handleScoreSizeChange = (size) => {
 }
 
 const handleScorePageChange = (page) => {
-  scoreListPage.pageSize = size
-    .page = page
+  scoreListPage.pageSize = page
   loadExamScoreData()
 }
 
@@ -559,11 +756,14 @@ const editExam = (exam) => {
     type: exam.type,
     classId: exam.classId,
     courseId: exam.courseId,
-    examTime: formatExamDate(exam.examDate),
-    duration: 120,
+    examDate: exam.examDate,
     fullScore: exam.fullScore || 100,
     passScore: exam.passScore || 60,
-    description: exam.description || ''
+    description: exam.description || '',
+    knowledgePointIds: exam.knowledgePointIds || []
+  }
+  if (exam.courseId) {
+    onExamFormCourseChange(exam.courseId)
   }
   examDialogVisible.value = true
 }
@@ -579,8 +779,9 @@ const resetExamForm = () => {
     fullScore: 100,
     passScore: 60,
     description: '',
-    duration: 120
+    knowledgePointIds: []  // 添加知识点ID列表
   }
+  currentCourseKnowledgePoints.value = []
   examFormRef.value?.resetFields()
 }
 
@@ -806,8 +1007,20 @@ const exportScores = async (exam) => {
 }
 
 const importScore = (exam) => {
-  console.log('要导入成绩的考试:', exam)
-  showScoreImportDialog(exam)
+  selectedExamForScore.value = exam.id
+  selectedExamInfo.value = {
+    id: exam.id,
+    name: exam.name,
+    fullScore: exam.fullScore || 100,
+    passScore: exam.passScore || 60,
+    className: exam.className
+  }
+  scoreParseResult.value = null
+  selectedScoreFile.value = null
+  scoreImportDialogVisible.value = true
+  setTimeout(() => {
+    scoreUploadRef.value?.clearFiles()
+  }, 100)
 }
 
 const exportExamsList = () => {
@@ -838,6 +1051,7 @@ onMounted(async () => {
   await fetchCourseList()
   await fetchExamList()
   await fetchStatistics()
+  await fetchAllKnowledgePoints()
 })
 </script>
 
@@ -860,7 +1074,7 @@ onMounted(async () => {
         <el-button type="primary" @click="showCreateDialog">
           <i class="fas fa-plus"></i> 创建考试
         </el-button>
-        <el-button @click="showImportDialog">
+        <el-button @click="showExamImportDialog">
           <i class="fas fa-upload"></i> 批量导入
         </el-button>
         <el-button @click="exportExamsList">
@@ -972,9 +1186,12 @@ onMounted(async () => {
     <el-dialog v-model="examDialogVisible" :title="dialogTitle" width="600px" @close="resetExamForm"
       body-class="form-dialog">
       <el-form ref="examFormRef" :model="examForm" :rules="examRules" label-width="100px">
+
+        <!-- 原有字段保持不变 -->
         <el-form-item label="考试名称" prop="name">
           <el-input v-model="examForm.name" placeholder="请输入考试名称" />
         </el-form-item>
+
         <el-form-item label="考试类型" prop="type">
           <el-select v-model="examForm.type" placeholder="请选择考试类型" style="width: 100%">
             <el-option label="期中考试" value="MIDTERM" />
@@ -984,30 +1201,46 @@ onMounted(async () => {
             <el-option label="单元测试" value="UNIT" />
           </el-select>
         </el-form-item>
+
         <el-form-item label="所属班级" prop="classId">
           <el-select v-model="examForm.classId" placeholder="请选择班级" style="width: 100%">
             <el-option v-for="cls in classList" :key="cls.id" :label="cls.name" :value="cls.id" />
           </el-select>
         </el-form-item>
-        <el-form-item label="课程" prop="classId">
-          <el-select v-model="examForm.courseId" placeholder="请选择课程" style="width: 100%">
+
+        <el-form-item label="课程" prop="courseId">
+          <el-select v-model="examForm.courseId" placeholder="请选择课程" style="width: 100%"
+            @change="onExamFormCourseChange">
             <el-option v-for="cls in courseList" :key="cls.id" :label="cls.name" :value="cls.id" />
           </el-select>
         </el-form-item>
+
+        <!-- 知识点（多选） -->
+        <el-form-item label="知识点" prop="knowledgePointIds">
+          <el-select v-model="examForm.knowledgePointIds" multiple collapse-tags placeholder="请选择知识点（可多选）" filterable
+            clearable style="width: 100%">
+            <el-option v-for="kp in currentCourseKnowledgePoints" :key="kp.id" :label="kp.name" :value="kp.id" />
+          </el-select>
+        </el-form-item>
+
         <el-form-item label="考试日期" prop="examDate">
           <el-date-picker v-model="examForm.examDate" type="datetime" placeholder="选择考试时间" format="YYYY-MM-DD HH:mm:ss"
             value-format="YYYY-MM-DDTHH:mm:ss" style="width: 100%" />
         </el-form-item>
+
         <el-form-item label="满分" prop="fullScore">
           <el-input-number v-model="examForm.fullScore" :min="0" :max="750" :step="10" style="width: 100%" />
         </el-form-item>
+
         <el-form-item label="及格线" prop="passScore">
           <el-input-number v-model="examForm.passScore" :min="0" :max="examForm.fullScore" :step="10"
             style="width: 100%" />
         </el-form-item>
+
         <el-form-item label="考试说明" prop="description">
           <el-input v-model="examForm.description" type="textarea" :rows="3" placeholder="请输入考试说明（可选）" />
         </el-form-item>
+
       </el-form>
       <template #footer>
         <el-button @click="examDialogVisible = false">取消</el-button>
@@ -1015,104 +1248,173 @@ onMounted(async () => {
       </template>
     </el-dialog>
 
-    <!-- 考试成绩批量导入弹窗 -->
-    <el-dialog v-model="scoreImportDialogVisible" title="批量导入考试成绩" width="700px">
+    <!-- 考试批量导入弹窗 -->
+    <el-dialog v-model="examImportDialogVisible" title="批量导入考试" width="1000px" @close="resetExamImportData">
       <div class="import-content">
         <div class="import-tips">
           <i class="fas fa-info-circle"></i>
-          <h4>考试成绩导入说明</h4>
-          <span>
-            必填：学生（学号或姓名）、成绩<br>
-            非必填：备注<br>
-            成绩范围：0-总分（默认总分100）<br>
-            匹配规则：优先按学号匹配，其次按姓名，姓名重复时请使用学号
-          </span>
+          <div>
+            <h4>考试信息导入说明</h4>
+            <p>必填：考试名称、考试类型、课程名称、考试日期 <span style="color: #f56c6c;">*</span><br>
+              非必填：班级、总分、及格分、描述<br>
+              默认：总分=100，及格分=总分的60%，状态根据考试日期自动判断<br>
+              考试类型：MOCK(模拟考)/UNIT(单元测试)/MONTHLY(月考)/MIDTERM(期中)/FINAL(期末)<br>
+              支持格式：.xlsx, .xls, .csv</p>
+          </div>
         </div>
+
         <div class="import-actions">
-          <el-upload ref="scoreUploadRef" class="upload-demo" drag :auto-upload="false"
-            :on-change="handleScoreFileChange" :before-upload="beforeUpload" :limit="1" accept=".xlsx,.xls,.csv,.txt">
+          <el-upload ref="examUploadRef" class="upload-demo" drag :auto-upload="false" :on-change="handleExamFileChange"
+            :before-upload="beforeUpload" :limit="1" accept=".xlsx,.xls,.csv">
             <i class="fas fa-cloud-upload-alt"></i>
             <div class="el-upload__text">将文件拖到此处，或<em>点击上传</em></div>
             <template #tip>
-              <div class="el-upload__tip">
-                支持 .xlsx, .csv, .txt 格式文件，文件大小不超过10MB
-              </div>
+              <div class="el-upload__tip">支持 .xlsx, .csv 格式文件，文件大小不超过10MB</div>
             </template>
           </el-upload>
-          <div v-if="selectedScoreFile" class="file-info">
-            <el-alert :title="`已选择文件：${selectedScoreFile.name}`" type="info" :closable="false" />
+          <div v-if="selectedExamFile" class="file-info">
+            <el-alert :title="`已选择文件：${selectedExamFile.name}`" type="info" :closable="false" />
+          </div>
+        </div>
+
+        <!-- 操作按钮 -->
+        <div v-if="selectedExamFile" class="action-buttons">
+          <el-button type="primary" @click="uploadExamFile" :loading="examUploading">
+            <el-icon>
+              <Upload />
+            </el-icon> 开始解析
+          </el-button>
+          <el-button @click="clearExamFile">清空</el-button>
+        </div>
+
+        <!-- 解析结果展示 -->
+        <div v-if="examParseResult" class="parse-result">
+          <el-divider>解析结果</el-divider>
+
+          <el-alert v-if="examParseResult.success" title="解析成功" type="success" :closable="false" />
+          <el-alert v-else title="解析失败" type="error" :closable="false">
+            <template #default>
+              <div v-for="(error, idx) in examParseResult.errors" :key="idx" class="error-item">
+                {{ error.errorMessage }}
+              </div>
+            </template>
+          </el-alert>
+
+          <div class="summary"><strong>摘要：</strong>{{ examParseResult.summary }}</div>
+
+          <!-- 解析出的数据表格 -->
+          <div v-if="examParseResult.data && examParseResult.data.length > 0" class="data-table">
+            <h4>解析出的数据（请确认，<span style="color: #f56c6c;">*</span>为必填项）</h4>
+            <el-table :data="examParseResult.data" border stripe max-height="400" style="width: 100%">
+
+              <!-- 考试名称 -->
+              <el-table-column label="考试名称" width="150">
+                <template #default="{ row }">
+                  <el-input v-model="row.name" size="small" placeholder="必填" :class="{ 'is-error': !row.name }" />
+                </template>
+              </el-table-column>
+
+              <!-- 考试类型（下拉选择） -->
+              <el-table-column label="考试类型" width="110">
+                <template #default="{ row }">
+                  <el-select v-model="row.type" size="small" placeholder="必填" style="width: 100%"
+                    :class="{ 'is-error': !row.type }">
+                    <el-option label="期中考试" value="MIDTERM" />
+                    <el-option label="期末考试" value="FINAL" />
+                    <el-option label="月考" value="MONTHLY" />
+                    <el-option label="模拟考" value="MOCK" />
+                    <el-option label="单元测试" value="UNIT" />
+                  </el-select>
+                </template>
+              </el-table-column>
+
+              <!-- 课程（下拉选择） -->
+              <el-table-column label="课程" width="150">
+                <template #default="{ row }">
+                  <el-select v-model="row.courseId" size="small" placeholder="请选择课程" filterable clearable
+                    :class="{ 'is-error': !row.courseId }" style="width: 100%">
+                    <el-option v-for="course in courseList" :key="course.id" :label="course.name" :value="course.id" />
+                  </el-select>
+                </template>
+              </el-table-column>
+
+              <!-- 考试日期 -->
+              <el-table-column label="考试日期" width="140">
+                <template #default="{ row }">
+                  <el-date-picker v-model="row.examDate" type="datetime" size="small" placeholder="必填"
+                    format="YYYY-MM-DD" value-format="YYYY-MM-DDTHH:mm:ss" :class="{ 'is-error': !row.examDate }"
+                    style="width: 100%" />
+                </template>
+              </el-table-column>
+
+              <!-- 班级（下拉选择，可选） -->
+              <el-table-column label="班级" width="130">
+                <template #default="{ row }">
+                  <el-select v-model="row.classId" size="small" placeholder="可选" clearable filterable
+                    style="width: 100%">
+                    <el-option v-for="cls in classList" :key="cls.id" :label="cls.name" :value="cls.id" />
+                  </el-select>
+                </template>
+              </el-table-column>
+
+              <!-- 总分 -->
+              <el-table-column label="总分" width="80">
+                <template #default="{ row }">
+                  <el-input-number v-model="row.fullScore" :min="0" :max="200" :step="10" size="small"
+                    controls-position="right" style="width: 100%" />
+                </template>
+              </el-table-column>
+
+              <!-- 及格分 -->
+              <el-table-column label="及格分" width="80">
+                <template #default="{ row }">
+                  <el-input-number v-model="row.passScore" :min="0" :max="row.fullScore || 100" :step="10" size="small"
+                    controls-position="right" style="width: 100%" />
+                </template>
+              </el-table-column>
+
+              <el-table-column label="知识点" width="200">
+                <template #default="{ row }">
+                  <el-select v-model="row.knowledgePointIds" multiple collapse-tags size="small"
+                    placeholder="请选择知识点（可多选）" filterable clearable style="width: 100%">
+                    <el-option v-for="kp in courseKnowledgePointsMap.get(row.courseId) || []" :key="kp.id"
+                      :label="kp.name" :value="kp.id" />
+                  </el-select>
+                </template>
+              </el-table-column>
+
+              <!-- 描述 -->
+              <el-table-column label="描述" min-width="150">
+                <template #default="{ row }">
+                  <el-input v-model="row.description" size="small" placeholder="可选" />
+                </template>
+              </el-table-column>
+
+              <!-- 状态提示 -->
+              <el-table-column label="状态" width="80" fixed="right">
+                <template #default="{ row }">
+                  <el-tag v-if="!row.name || !row.type || !row.courseId || !row.examDate" type="danger" size="small">
+                    缺必填
+                  </el-tag>
+                  <el-tag v-else type="success" size="small">就绪</el-tag>
+                </template>
+              </el-table-column>
+            </el-table>
+          </div>
+
+          <!-- 确认按钮 -->
+          <div v-if="examParseResult.data && examParseResult.data.length > 0" class="confirm-buttons">
+            <el-button type="success" @click="confirmExamImport" :loading="examSaving">
+              <el-icon>
+                <Check />
+              </el-icon> 确认导入 ({{ examParseResult.data.length }}条)
+            </el-button>
+            <el-button type="danger" @click="cancelExamImport">取消</el-button>
           </div>
         </div>
       </div>
-
-      <!-- 操作按钮 -->
-      <div v-if="selectedScoreFile" class="action-buttons">
-        <el-button type="primary" @click="uploadScoreFile" :loading="scoreUploading">
-          <el-icon>
-            <Upload />
-          </el-icon>
-          开始解析
-        </el-button>
-        <el-button @click="clearScoreFile">清空</el-button>
-      </div>
-
-      <!-- 解析结果展示 -->
-      <div v-if="scoreParseResult" class="parse-result">
-        <el-divider>解析结果</el-divider>
-
-        <el-alert v-if="scoreParseResult.success" title="解析成功" type="success" :closable="false" />
-        <el-alert v-else title="解析失败" type="error" :closable="false">
-          <template #default>
-            <div v-for="(error, idx) in scoreParseResult.errors" :key="idx" class="error-item">
-              {{ error.errorMessage }}
-            </div>
-          </template>
-        </el-alert>
-
-        <div class="summary" style="white-space: pre-wrap;">
-          <strong>摘要：</strong>{{ scoreParseResult.summary }}
-        </div>
-
-        <!-- 解析出的数据表格 -->
-        <div v-if="scoreParseResult.data && scoreParseResult.data.length > 0" class="data-table">
-          <h4>解析出的数据（请确认）</h4>
-          <el-table :data="scoreParseResult.data" border stripe height="300">
-            <el-table-column prop="studentName" label="学生" width="150">
-              <template #default="{ row }">
-                <el-input v-model="row.studentName" size="small" placeholder="学号或姓名" />
-              </template>
-            </el-table-column>
-            <el-table-column prop="score" label="成绩" width="120">
-              <template #default="{ row }">
-                <el-input-number v-model="row.score" :min="0" :max="currentExamForImport?.fullScore || 100"
-                  :controls="false" size="small" style="width: 100%" />
-              </template>
-            </el-table-column>
-            <el-table-column prop="remark" label="备注">
-              <template #default="{ row }">
-                <el-input v-model="row.remark" size="small" placeholder="备注（可选）" />
-              </template>
-            </el-table-column>
-          </el-table>
-        </div>
-
-        <!-- 确认按钮 -->
-        <div v-if="scoreParseResult.data" class="confirm-buttons">
-          <el-button type="success" @click="confirmScoreInsert" :loading="scoreSaving">
-            <el-icon>
-              <Check />
-            </el-icon>
-            确认导入
-          </el-button>
-          <el-button type="danger" @click="cancelScoreInsert">
-            <el-icon>
-              <Close />
-            </el-icon>
-            取消
-          </el-button>
-        </div>
-      </div>
     </el-dialog>
+
     <!-- 成绩查看弹窗 -->
     <el-dialog v-model="viewScoresDialogVisible" :title="`成绩查看 - ${scoreMoreData?.name}`" width="80%"
       :style="{ marginTop: '20px' }">
@@ -1165,94 +1467,131 @@ onMounted(async () => {
       </template>
     </el-dialog>
 
-    <!-- 批量导入弹窗 -->
-    <el-dialog v-model="importDialogVisible" title="批量导入考试信息" width="600px">
+    <!-- 考试成绩批量导入弹窗 -->
+    <el-dialog v-model="scoreImportDialogVisible" title="批量导入考试成绩" width="1000px" @close="resetScoreImportData">
       <div class="import-content">
         <div class="import-tips">
           <i class="fas fa-info-circle"></i>
-          <h4>考试信息导入说明</h4>
-          <span>
-            必填：考试名称、考试类型、课程名称、考试日期<br>
-            非必填：班级、开始时间、结束时间、时长、总分、及格分、考试地点、考试说明<br>
-            默认：总分=100，及格分=总分的60%，状态=UPCOMING<br>
-            考试类型：MOCK(模拟考)、UNIT(单元测试)、MONTHLY(月考)、MIDTERM(期中考试)、FINAL(期末考试)
-          </span>
+          <div>
+            <h4>考试成绩导入说明</h4>
+            <p>必填：学生（学号或姓名）、成绩 <span style="color: #f56c6c;">*</span><br>
+              非必填：备注<br>
+              成绩范围：0-考试总分（默认总分100）<br>
+              匹配规则：优先按学号匹配，其次按姓名<br>
+              支持格式：.xlsx, .xls, .csv</p>
+          </div>
         </div>
+
+        <!-- 选择考试 -->
+        <div class="select-exam" style="margin-bottom: 20px;">
+          <el-form-item label="选择考试" label-width="80px" required>
+            <el-select v-model="selectedExamForScore" placeholder="请选择要导入成绩的考试" filterable clearable
+              style="width: 300px" @change="handleExamChange">
+              <el-option v-for="exam in examList" :key="exam.id" :label="`${exam.name} (${exam.className || '无班级'})`"
+                :value="exam.id" />
+            </el-select>
+          </el-form-item>
+          <div v-if="selectedExamInfo" class="exam-info">
+            <el-tag type="info">考试名称：{{ selectedExamInfo.name }}</el-tag>
+            <el-tag type="success">总分：{{ selectedExamInfo.fullScore || 100 }}</el-tag>
+            <el-tag type="warning">及格分：{{ selectedExamInfo.passScore || 60 }}</el-tag>
+          </div>
+        </div>
+
         <div class="import-actions">
-          <el-upload ref="uploadRef" class="upload-demo" drag :auto-upload="false" :on-change="handleFileChange"
-            :before-upload="beforeUpload" :limit="1" accept=".xlsx,.xls,.csv,.txt,.pdf,.doc,.docx">
+          <el-upload ref="scoreUploadRef" class="upload-demo" drag :auto-upload="false"
+            :on-change="handleScoreFileChange" :before-upload="beforeUpload" :limit="1" accept=".xlsx,.xls,.csv">
             <i class="fas fa-cloud-upload-alt"></i>
             <div class="el-upload__text">将文件拖到此处，或<em>点击上传</em></div>
             <template #tip>
-              <div class="el-upload__tip">
-                支持 .xlsx, .csv, .txt, .pdf, .docx 格式文件，文件大小不超过10MB
-              </div>
+              <div class="el-upload__tip">支持 .xlsx, .csv 格式文件，文件大小不超过10MB</div>
             </template>
           </el-upload>
-          <!-- 选中的文件信息 -->
-          <div v-if="selectedFile" class="file-info">
-            <el-alert :title="`已选择文件：${selectedFile.name}`" type="info" :closable="false" />
+          <div v-if="selectedScoreFile" class="file-info">
+            <el-alert :title="`已选择文件：${selectedScoreFile.name}`" type="info" :closable="false" />
           </div>
         </div>
-      </div>
-      <!-- 操作按钮 -->
-      <div v-if="selectedFile" class="action-buttons">
-        <el-button type="primary" @click="uploadFile" :loading="uploading">
-          <el-icon>
-            <Upload />
-          </el-icon>
-          开始解析
-        </el-button>
-        <el-button @click="clearFile">清空</el-button>
-      </div>
 
-      <!-- 解析结果展示 -->
-      <div v-if="parseResult" class="parse-result">
-        <el-divider>解析结果</el-divider>
-
-        <!-- 成功提示 -->
-        <el-alert v-if="parseResult.success" title="解析成功" type="success" :closable="false" />
-
-        <!-- 错误提示 -->
-        <el-alert v-else title="解析失败" type="error" :closable="false">
-          <template #default>
-            <div v-for="(error, idx) in parseResult.errors" :key="idx" class="error-item">
-              {{ error.errorMessage }}
-            </div>
-          </template>
-        </el-alert>
-
-        <!-- 数据摘要 -->
-        <div class="summary" style="white-space: pre-wrap;">
-          <strong>摘要：</strong>{{ parseResult.summary }}
+        <!-- 操作按钮 -->
+        <div v-if="selectedScoreFile" class="action-buttons">
+          <el-button type="primary" @click="uploadScoreFile" :loading="scoreUploading">
+            <el-icon>
+              <Upload />
+            </el-icon> 开始解析
+          </el-button>
+          <el-button @click="clearScoreFile">清空</el-button>
         </div>
 
-        <!-- 解析出的数据表格 -->
-        <div v-if="parseResult.data && parseResult.data.length > 0" class="data-table">
-          <h4>解析出的数据（请确认）</h4>
-          <el-table :data="parseResult.data" border stripe height="300">
-            <el-table-column v-for="col in Object.keys(parseResult.data[0])" :key="col" :prop="col" :label="col"
-              width="150">
-              <template #default="{ row }">
-                <el-input v-model="row[col]" size="small" />
-              </template>
-            </el-table-column>
-          </el-table>
-        </div>
-        <!-- 确认按钮 -->
-        <div v-if="parseResult.data" class="confirm-buttons">
-          <el-button type="success" @click="confirmInsert">
-            <el-icon>
-              <Check />
-            </el-icon>
-            确认导入
-          </el-button>
-          <el-button type="danger" @click="cancelInsert">
-            <el-icon>
-              <Close />
-            </el-icon>
-            取消
-          </el-button>
+        <!-- 解析结果展示 -->
+        <div v-if="scoreParseResult" class="parse-result">
+          <el-divider>解析结果</el-divider>
+
+          <el-alert v-if="scoreParseResult.success" title="解析成功" type="success" :closable="false" />
+          <el-alert v-else title="解析失败" type="error" :closable="false">
+            <template #default>
+              <div v-for="(error, idx) in scoreParseResult.errors" :key="idx" class="error-item">
+                {{ error.errorMessage }}
+              </div>
+            </template>
+          </el-alert>
+
+          <div class="summary"><strong>摘要：</strong>{{ scoreParseResult.summary }}</div>
+
+          <!-- 解析出的数据表格 -->
+          <div v-if="scoreParseResult.data && scoreParseResult.data.length > 0" class="data-table">
+            <h4>解析出的数据（请确认，<span style="color: #f56c6c;">*</span>为必填项）</h4>
+            <el-table :data="scoreParseResult.data" border stripe max-height="400" style="width: 100%">
+
+              <!-- 学生（学号或姓名） -->
+              <el-table-column label="学生" width="150">
+                <template #default="{ row }">
+                  <el-input v-model="row.studentName" size="small" placeholder="学号或姓名"
+                    :class="{ 'is-error': !row.studentName }" />
+                  <div v-if="row.studentId" class="match-success">✓ 已匹配</div>
+                  <div v-if="row._error_studentName" class="match-error">{{ row._error_studentName }}</div>
+                </template>
+              </el-table-column>
+
+              <!-- 成绩 -->
+              <el-table-column label="成绩" width="120">
+                <template #default="{ row }">
+                  <el-input-number v-model="row.score" :min="0" :max="selectedExamInfo?.fullScore || 100" :step="1"
+                    size="small" controls-position="right" style="width: 100%"
+                    :class="{ 'is-error': row.score === undefined || row.score === null }" />
+                </template>
+              </el-table-column>
+
+              <!-- 备注 -->
+              <el-table-column label="备注" min-width="200">
+                <template #default="{ row }">
+                  <el-input v-model="row.remark" size="small" placeholder="可选" />
+                </template>
+              </el-table-column>
+
+              <!-- 状态提示 -->
+              <el-table-column label="状态" width="100" fixed="right">
+                <template #default="{ row }">
+                  <el-tag v-if="!row.studentName || row.score === undefined" type="danger" size="small">
+                    缺必填
+                  </el-tag>
+                  <el-tag v-else-if="!row.studentId" type="warning" size="small">
+                    学生待匹配
+                  </el-tag>
+                  <el-tag v-else type="success" size="small">就绪</el-tag>
+                </template>
+              </el-table-column>
+            </el-table>
+          </div>
+
+          <!-- 确认按钮 -->
+          <div v-if="scoreParseResult.data && scoreParseResult.data.length > 0" class="confirm-buttons">
+            <el-button type="success" @click="confirmScoreImport" :loading="scoreSaving">
+              <el-icon>
+                <Check />
+              </el-icon> 确认导入 ({{ scoreParseResult.data.length }}条)
+            </el-button>
+            <el-button type="danger" @click="cancelScoreImport">取消</el-button>
+          </div>
         </div>
       </div>
     </el-dialog>
@@ -1291,11 +1630,11 @@ onMounted(async () => {
               </h4>
               <h4 style="display: flex;align-items: center; height: 20px;">最高分:<p>{{ analysisDetailData?.highestScore ||
                 '-'
-              }}</p>
+                  }}</p>
               </h4>
               <h4 style="display: flex;align-items: center; height: 20px;">最低分:<p>{{ analysisDetailData?.lowestScore ||
                 '-'
-              }}</p>
+                  }}</p>
               </h4>
             </div>
           </el-descriptions-item>
@@ -1757,11 +2096,32 @@ onMounted(async () => {
   }
 }
 
+.match-success {
+  font-size: 11px;
+  color: #67c23a;
+  margin-top: 2px;
+}
 
+.match-error {
+  font-size: 11px;
+  color: #f56c6c;
+  margin-top: 2px;
+}
 
+.select-exam {
+  background: #f8fafc;
+  padding: 12px 16px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
 
-
-
+  .exam-info {
+    display: flex;
+    gap: 12px;
+  }
+}
 
 /* 响应式 */
 @media (max-width: 768px) {

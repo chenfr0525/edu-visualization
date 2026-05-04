@@ -145,8 +145,8 @@ const radarOption = computed(() => {
 const lineOption = computed(() => {
   const scores = gradeTrendData.value.map(item => item.score);
   const exams = gradeTrendData.value.map(item => item.examName);
-  const classRank = gradeTrendData.value.map(item => item.classRank);
 
+  // 如果没有成绩数据，显示空状态
   if (exams.length === 0) {
     return {
       title: { text: '暂无考试成绩', left: 'center' },
@@ -157,13 +157,33 @@ const lineOption = computed(() => {
   return {
     title: { text: '学习成绩趋势', left: 'center' },
     tooltip: { trigger: 'axis' },
-    legend: { data: ['我的成绩', '班级排名'], left: 'left' },
+    legend: {
+      data: ['我的成绩'],
+      left: 'left'
+    },
     grid: { left: '3%', right: '4%', bottom: '3%', containLabel: true },
     xAxis: { type: 'category', data: exams, boundaryGap: false },
-    yAxis: [{ type: 'value', max: 100, name: '分数' }, { type: 'value', name: '排名', position: 'right', inverse: true }],
+    yAxis: { type: 'value', max: 100, name: '分数' },
     series: [
-      { name: '我的成绩', data: scores, type: 'line', smooth: true, symbol: 'circle', symbolSize: 8, lineStyle: { color: '#409EFF', width: 3 }, areaStyle: { color: 'rgba(64, 158, 255, 0.1)' } },
-      { name: '班级排名', data: classRank, type: 'line', smooth: true, symbol: 'diamond', symbolSize: 8, lineStyle: { color: '#67C23A', width: 2, type: 'dashed' }, yAxisIndex: 1 }
+      {
+        name: '我的成绩',
+        data: scores,
+        type: 'line',
+        smooth: true,
+        symbol: 'circle',
+        symbolSize: 8,
+        lineStyle: { color: '#409EFF', width: 3 },
+        areaStyle: { color: 'rgba(64, 158, 255, 0.1)' },
+        markPoint: {
+          data: [
+            { type: 'max', name: '最高分' },
+            { type: 'min', name: '最低分' }
+          ]
+        },
+        markLine: {
+          data: [{ type: 'average', name: '平均值' }]
+        }
+      }
     ]
   }
 })

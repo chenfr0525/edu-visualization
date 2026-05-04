@@ -40,20 +40,25 @@ const refreshAiAnalysis = () => {
   fetchAiAnalysis(currentStudentDashboardData.value.studentInfo.id, true)
 }
 
-//文件解析模块
+// 文件上传前的校验
 const beforeUpload = (file) => {
   const isValidSize = file.size / 1024 / 1024 < 10
   if (!isValidSize) {
     ElMessage.error('文件大小不能超过 10MB')
     return false
   }
+  const isValidType = file.name.endsWith('.xlsx') || file.name.endsWith('.xls') || file.name.endsWith('.csv')
+  if (!isValidType) {
+    ElMessage.error('仅支持 .xlsx, .xls, .csv 格式文件')
+    return false
+  }
   return true
 }
 
 // 文件变化处理
-const handleFileChange = (file, fileList) => {
+const handleFileChange = (file) => {
   selectedFile.value = file.raw
-  parseResult.value = null  // 清空之前的解析结果
+  parseResult.value = null
 }
 
 // 上传文件并解析
@@ -65,10 +70,7 @@ const uploadFile = async () => {
 
   uploading.value = true
   try {
-    const result = await fileApi.uploadFile(
-      selectedFile.value,
-      "学生信息",
-    )
+    const result = await fileApi.uploadFile(selectedFile.value, "student")
     parseResult.value = result.data
 
     if (parseResult.value.success) {
@@ -77,7 +79,6 @@ const uploadFile = async () => {
       ElMessage.error('解析失败，请检查文件格式')
     }
   } catch (error) {
-    console.log("解析失败", error)
     console.error('上传失败', error)
     ElMessage.error(error.message || '上传失败，请稍后重试')
   } finally {
@@ -85,54 +86,105 @@ const uploadFile = async () => {
   }
 }
 
-// 确认插入数据库
-const confirmInsert = async () => {
+// 确认导入
+const confirmImport = async () => {
+  if (!parseResult.value?.data || parseResult.value.data.length === 0) {
+    ElMessage.warning('没有可导入的数据')
+    return
+  }
+
+  // 校验所有行的必填字段
+  const invalidRows = []
+  parseResult.value.data.forEach((row, index) => {
+    if (!row.studentNo || !row.name || !row.classId || !row.gender) {
+      invalidRows.push(index + 1)
+    }
+  })
+
+  if (invalidRows.length > 0) {
+    ElMessage.error(`第 ${invalidRows.join(', ')} 行存在未填写的必填项，请补充完整后再导入`)
+    return
+  }
 
   try {
-    await ElMessageBox.confirm('确认要将这些导入吗？', '确认操作', {
+    await ElMessageBox.confirm(`确认导入 ${parseResult.value.data.length} 条学生数据吗？`, '确认操作', {
       confirmButtonText: '确认',
       cancelButtonText: '取消',
       type: 'warning'
     })
-    // 确认插入
-    const res = await fileApi.confirmInsert(
-      parseResult.value.data, "student"
-    )
-    if (res.data === '数据导入成功') {
-      ElMessage.success(res.data)
+
+    saving.value = true
+    // 准备导入数据（只传递需要的字段）
+    const importData = parseResult.value.data.map(row => ({
+      studentNo: row.studentNo,
+      name: row.name,
+      username: row.username || row.studentNo,  // 用户名默认使用学号
+      classId: row.classId,
+      gender: row.gender,
+      grade: row.grade || null,
+      email: row.email || null,
+      phone: row.phone || null
+    }))
+
+    const res = await fileApi.confirmInsert(importData, "student")
+
+    if (res.data.success) {
+      ElMessage.success(res.data.message)
+      // 关闭弹窗并刷新列表
+      importDialogVisible.value = false
       parseResult.value = null
       selectedFile.value = null
       uploadRef.value?.clearFiles()
-      handleFilterChange()
+      await fetchStudentList()
+      await fetchStatistics()
     } else {
-      parseResult.value.summary = res.data
-      ElMessage.error(res.data)
+      ElMessageBox.alert(
+        res.data.message,
+        '导入结果详情',
+        {
+          confirmButtonText: '知道了',
+          type: 'warning',
+          dangerouslyUseHTMLString: false
+        }
+      )
     }
+
   } catch (error) {
-    console.error('插入失败', error)
-    ElMessage.error(error.message || '插入失败')
+    ElMessageBox.alert(
+      error.message,
+      '导入结果详情',
+      {
+        confirmButtonText: '知道了',
+        type: 'warning',
+        dangerouslyUseHTMLString: false
+      }
+    )
+
+  } finally {
+    saving.value = false
   }
 }
 
-// 取消插入
-const cancelInsert = async () => {
+// 取消导入
+const cancelImport = async () => {
   try {
-    await ElMessageBox.confirm('确认要取消并导入这些数据吗？取消后数据将消失', '确认操作', {
+    await ElMessageBox.confirm('确认要取消导入吗？取消后数据将消失', '确认操作', {
       confirmButtonText: '确认',
       cancelButtonText: '取消',
       type: 'warning'
     })
-    ElMessage.success('已取消，数据已清理')
     parseResult.value = null
     selectedFile.value = null
     uploadRef.value?.clearFiles()
-
+    importDialogVisible.value = false
+    ElMessage.success('已取消')
   } catch (error) {
     if (error !== 'cancel') {
       console.error('取消失败', error)
     }
   }
 }
+
 
 // 清空文件
 const clearFile = () => {
@@ -141,11 +193,19 @@ const clearFile = () => {
   uploadRef.value?.clearFiles()
 }
 
+// 重置导入弹窗数据
+const resetImportData = () => {
+  parseResult.value = null
+  selectedFile.value = null
+  uploadRef.value?.clearFiles()
+}
+
 // 响应式数据
 const uploadRef = ref(null)
 const selectedFile = ref(null)
 const uploading = ref(false)
 const parseResult = ref(null)
+const saving = ref(false)
 
 
 
@@ -760,97 +820,156 @@ onMounted(async () => {
       </template>
     </el-dialog>
 
-    <!-- 批量导入弹窗 -->
-    <el-dialog v-model="importDialogVisible" title="批量导入学生" width="600px">
+    <!-- 批量导入弹窗 - 学生导入 -->
+    <el-dialog v-model="importDialogVisible" title="批量导入学生" width="1000px" @close="resetImportData">
       <div class="import-content">
         <div class="import-tips">
           <i class="fas fa-info-circle"></i>
-          <h4>学生信息导入说明</h4>
-          <span>
-            必填：学号、姓名、用户名、班级、性别<br>
-            非必填：邮箱、电话<br>
-            默认：年级 = 大一<br>
-            初始密码：123456<br>
-          </span>
+          <div>
+            <h4>学生信息导入说明</h4>
+            <p>必填：学号、姓名、用户名、班级、性别 <span style="color: #f56c6c;">*</span><br>
+              非必填：年级、邮箱、电话<br>
+              默认：初始密码为123456，年级自动从班级获取<br>
+              支持格式：.xlsx, .xls, .csv</p>
+          </div>
         </div>
+
         <div class="import-actions">
           <el-upload ref="uploadRef" class="upload-demo" drag :auto-upload="false" :on-change="handleFileChange"
-            :before-upload="beforeUpload" :limit="1" accept=".xlsx,.xls,.csv,.txt,.pdf,.doc,.docx">
+            :before-upload="beforeUpload" :limit="1" accept=".xlsx,.xls,.csv">
             <i class="fas fa-cloud-upload-alt"></i>
             <div class="el-upload__text">将文件拖到此处，或<em>点击上传</em></div>
             <template #tip>
-              <div class="el-upload__tip">
-                支持 .xlsx, .csv, .txt, .pdf, .docx 格式文件，文件大小不超过10MB
-              </div>
+              <div class="el-upload__tip">支持 .xlsx, .csv 格式文件，文件大小不超过10MB</div>
             </template>
           </el-upload>
-          <!-- 选中的文件信息 -->
           <div v-if="selectedFile" class="file-info">
             <el-alert :title="`已选择文件：${selectedFile.name}`" type="info" :closable="false" />
           </div>
         </div>
-      </div>
-      <!-- 操作按钮 -->
-      <div v-if="selectedFile" class="action-buttons">
-        <el-button type="primary" @click="uploadFile" :loading="uploading">
-          <el-icon>
-            <Upload />
-          </el-icon>
-          开始解析
-        </el-button>
-        <el-button @click="clearFile">清空</el-button>
-      </div>
 
-      <!-- 解析结果展示 -->
-      <div v-if="parseResult" class="parse-result">
-        <el-divider>解析结果</el-divider>
-
-        <!-- 成功提示 -->
-        <el-alert v-if="parseResult.success" title="解析成功" type="success" :closable="false" />
-
-        <!-- 错误提示 -->
-        <el-alert v-else title="解析失败" type="error" :closable="false">
-          <template #default>
-            <div v-for="(error, idx) in parseResult.errors" :key="idx" class="error-item">
-              {{ error.errorMessage }}
-            </div>
-          </template>
-        </el-alert>
-
-        <!-- 数据摘要 -->
-        <div class="summary" style="white-space: pre-wrap;">
-          <strong>摘要：</strong>{{ parseResult.summary }}
-        </div>
-
-        <!-- 解析出的数据表格 -->
-        <div v-if="parseResult.data && parseResult.data.length > 0" class="data-table">
-          <h4>解析出的数据（请确认）</h4>
-          <el-table :data="parseResult.data" border stripe height="300">
-            <el-table-column v-for="col in Object.keys(parseResult.data[0])" :key="col" :prop="col" :label="col"
-              width="150">
-              <template #default="{ row }">
-                <el-input v-model="row[col]" size="small" />
-              </template>
-            </el-table-column>
-          </el-table>
-        </div>
-        <!-- 确认按钮 -->
-        <div v-if="parseResult.data" class="confirm-buttons">
-          <el-button type="success" @click="confirmInsert">
+        <!-- 操作按钮 -->
+        <div v-if="selectedFile" class="action-buttons">
+          <el-button type="primary" @click="uploadFile" :loading="uploading">
             <el-icon>
-              <Check />
-            </el-icon>
-            确认导入
+              <Upload />
+            </el-icon> 开始解析
           </el-button>
-          <el-button type="danger" @click="cancelInsert">
-            <el-icon>
-              <Close />
-            </el-icon>
-            取消
-          </el-button>
+          <el-button @click="clearFile">清空</el-button>
+        </div>
+
+        <!-- 解析结果展示 -->
+        <div v-if="parseResult" class="parse-result">
+          <el-divider>解析结果</el-divider>
+
+          <el-alert v-if="parseResult.success" title="解析成功" type="success" :closable="false" />
+          <el-alert v-else title="解析失败" type="error" :closable="false">
+            <template #default>
+              <div v-for="(error, idx) in parseResult.errors" :key="idx" class="error-item">
+                {{ error.errorMessage }}
+              </div>
+            </template>
+          </el-alert>
+
+          <div class="summary"><strong>摘要：</strong>{{ parseResult.summary }}</div>
+
+          <!-- 解析出的数据表格 - 所有字段可编辑 -->
+          <div v-if="parseResult.data && parseResult.data.length > 0" class="data-table">
+            <h4>解析出的数据（请确认，<span style="color: #f56c6c;">*</span>为必填项）</h4>
+            <el-table :data="parseResult.data" border stripe max-height="400" style="width: 100%">
+
+              <!-- 学号 -->
+              <el-table-column label="学号" width="130">
+                <template #default="{ row }">
+                  <el-input v-model="row.studentNo" size="small" placeholder="必填"
+                    :class="{ 'is-error': !row.studentNo }" />
+                </template>
+              </el-table-column>
+
+              <!-- 姓名 -->
+              <el-table-column label="姓名" width="100">
+                <template #default="{ row }">
+                  <el-input v-model="row.name" size="small" placeholder="必填" :class="{ 'is-error': !row.name }" />
+                </template>
+              </el-table-column>
+
+              <!-- 用户名 -->
+              <el-table-column label="用户名" width="120">
+                <template #default="{ row }">
+                  <el-input v-model="row.username" size="small" placeholder="必填，默认学号"
+                    :class="{ 'is-error': !row.username }" />
+                </template>
+              </el-table-column>
+
+              <!-- 班级（下拉选择） -->
+              <el-table-column label="班级" width="140">
+                <template #default="{ row }">
+                  <el-select v-model="row.classId" size="small" placeholder="请选择班级" filterable clearable
+                    :class="{ 'is-error': !row.classId }" style="width: 100%">
+                    <el-option v-for="cls in classList" :key="cls.id" :label="cls.name" :value="cls.id" />
+                  </el-select>
+                </template>
+              </el-table-column>
+
+              <!-- 性别（下拉选择） -->
+              <el-table-column label="性别" width="80">
+                <template #default="{ row }">
+                  <el-select v-model="row.gender" size="small" placeholder="必填" style="width: 100%">
+                    <el-option label="男" value="男" />
+                    <el-option label="女" value="女" />
+                  </el-select>
+                </template>
+              </el-table-column>
+
+              <!-- 年级（下拉选择） -->
+              <el-table-column label="年级" width="90">
+                <template #default="{ row }">
+                  <el-select v-model="row.grade" size="small" placeholder="可选" clearable style="width: 100%">
+                    <el-option label="大一" value="大一" />
+                    <el-option label="大二" value="大二" />
+                    <el-option label="大三" value="大三" />
+                    <el-option label="大四" value="大四" />
+                  </el-select>
+                </template>
+              </el-table-column>
+
+              <!-- 邮箱 -->
+              <el-table-column label="邮箱" width="160">
+                <template #default="{ row }">
+                  <el-input v-model="row.email" size="small" placeholder="可选" />
+                </template>
+              </el-table-column>
+
+              <!-- 电话 -->
+              <el-table-column label="电话" width="120">
+                <template #default="{ row }">
+                  <el-input v-model="row.phone" size="small" placeholder="可选" />
+                </template>
+              </el-table-column>
+
+              <!-- 状态提示 -->
+              <el-table-column label="状态" width="80" fixed="right">
+                <template #default="{ row }">
+                  <el-tag v-if="!row.studentNo || !row.name || !row.classId || !row.gender" type="danger" size="small">
+                    缺必填
+                  </el-tag>
+                  <el-tag v-else type="success" size="small">就绪</el-tag>
+                </template>
+              </el-table-column>
+            </el-table>
+          </div>
+
+          <!-- 确认按钮 -->
+          <div v-if="parseResult.data && parseResult.data.length > 0" class="confirm-buttons">
+            <el-button type="success" @click="confirmImport" :loading="saving">
+              <el-icon>
+                <Check />
+              </el-icon> 确认导入 ({{ parseResult.data.length }}条)
+            </el-button>
+            <el-button type="danger" @click="cancelImport">取消</el-button>
+          </div>
         </div>
       </div>
-
     </el-dialog>
 
     <!-- 学生详情弹窗 -->
@@ -982,33 +1101,89 @@ onMounted(async () => {
   }
 
   .import-content {
-    padding: 20px 0;
-
     .import-tips {
       background: #ecf5ff;
-      border-radius: 8px;
-      padding: 12px 16px;
-      margin-bottom: 24px;
+      border-radius: 12px;
+      padding: 16px;
       display: flex;
-      align-items: center;
-      gap: 8px;
-      color: #1d4e7c;
+      gap: 12px;
+      margin-bottom: 20px;
 
       i {
-        font-size: 18px;
+        font-size: 24px;
+        color: #409eff;
+      }
+
+      h4 {
+        margin: 0 0 8px;
+      }
+
+      p {
+        margin: 0;
+        font-size: 13px;
+        color: #5f6b7a;
+
+        span {
+          color: #f56c6c;
+        }
       }
     }
 
-
     .import-actions {
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      gap: 24px;
+      text-align: center;
+      margin-bottom: 20px;
+    }
 
-      .upload-demo {
-        width: 100%;
+    .action-buttons {
+      display: flex;
+      justify-content: center;
+      gap: 12px;
+      margin: 16px 0;
+    }
+
+    .parse-result {
+      .summary {
+        margin: 12px 0;
+        padding: 10px;
+        background: #f5f7fa;
+        border-radius: 8px;
       }
+
+      .data-table {
+        margin-top: 16px;
+
+        h4 {
+          margin: 0 0 12px;
+          font-size: 14px;
+
+          span {
+            color: #f56c6c;
+          }
+        }
+      }
+
+      .confirm-buttons {
+        display: flex;
+        justify-content: center;
+        gap: 12px;
+        margin-top: 20px;
+      }
+    }
+
+    .file-info {
+      margin-top: 12px;
+    }
+
+    .error-item {
+      color: #f56c6c;
+      font-size: 12px;
+      margin-top: 4px;
+    }
+  }
+
+  :deep(.is-error) {
+    .el-input__wrapper {
+      box-shadow: 0 0 0 1px #f56c6c inset !important;
     }
   }
 

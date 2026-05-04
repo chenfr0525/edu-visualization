@@ -47,7 +47,8 @@ const treeData = ref([])
 const donutData = ref([])
 const radarData = ref({
   indicators: [],
-  values: []
+  myValues: [],
+  classAvgValues: []
 })
 
 const searchModel = ref({
