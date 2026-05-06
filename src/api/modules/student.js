@@ -313,10 +313,11 @@ export const homeworkApi = {
 
 export const gradeApi = {
   // 获取状态选项
-  getStatusCardData(studentId) {
+  getStatusCardData(studentId, courseId) {
     return request({
       url: `/analysis/student/exam/statistics/${studentId}`,
       method: 'get',
+      params: { courseId },
     })
   },
 

@@ -82,7 +82,6 @@ const loadKnowledgeAiAnalysis = async (forceRefresh = false) => {
     })
     if (res && res.data) {
       knowledgeAiAnalysis.value = res.data
-      console.log('知识点AI分析数据:', knowledgeAiAnalysis.value)
     }
   } catch (error) {
     console.error('获取知识点AI分析失败:', error)

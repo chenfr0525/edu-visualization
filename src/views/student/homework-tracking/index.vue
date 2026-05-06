@@ -29,7 +29,6 @@ const searchModel = ref({
 })
 // 选项数据
 const courseOptions = ref([])
-const statusOptions = ref([{ id: 'ONGOING', label: '进行中' }, { id: 'COMPLETED', label: '已完成' }, { id: 'DROPPED', label: '已放弃' }])
 // 统计数据
 const statsData = ref({
   completedCount: 0,
@@ -42,7 +41,7 @@ const statsData = ref({
 const homeworkList = ref([])
 const pageInfo = ref({
   page: 1,
-  pageSize: 10,
+  pageSize: 5,
   total: 0,
 })
 // 统计卡片配置
@@ -191,11 +190,13 @@ const loadHomeworkList = async () => {
   loading.value = true
   try {
     const res = await homeworkApi.getHomeworkList(userInfo.value.id, {
+      pageNum: pageInfo.value.page - 1,
+      pageSize: pageInfo.value.pageSize,
       courseId: searchModel.value.courseId,
-      status: searchModel.value.status,
     })
     if (res && res.data) {
-      homeworkList.value = res.data || []
+      homeworkList.value = res.data?.list || []
+      pageInfo.value.total = res.data?.total || 0
     }
   } catch (error) {
     console.error('加载作业列表失败:', error)
@@ -351,7 +352,7 @@ const radarOption = computed(() => {
 // 查看作业详情
 const handleViewDetail = async (row) => {
   await LoadWorkDetail(row.id)
-  await loadSingleHomeworkSuggestion(row.id, false)
+  loadSingleHomeworkSuggestion(row.id, false)
   detailDrawerVisible.value = true
 }
 
@@ -362,6 +363,16 @@ const handleSearch = () => {
   loadStats()
   loadOverallSuggestion()
   loadGradeTrend()
+}
+
+const handleSizeChange = async (size) => {
+  pageInfo.value.pageSize = size
+  loadHomeworkList()
+}
+
+const handlePageChange = (page) => {
+  pageInfo.value.page = page
+  loadHomeworkList()
 }
 
 const handleExportImage = () => {
@@ -394,14 +405,28 @@ onMounted(async () => {
 
 <template>
   <div class="homework-tracking" ref="containerRef" v-loading="loading">
-    <div class="container-header">
+
+
+    <el-row :gutter="20" style="margin-top: 20px;">
+      <el-col :span="24">
+        <el-card shadow="hover">
+          <template #header>
+            <div class="card-header">
+              <span>🤖 AI 作业分析</span>
+              <el-button size="small" type="primary" @click="refreshOverallSuggestion" :loading="overallAiLoading">
+                <i class="fas fa-sync-alt"></i> 刷新分析
+              </el-button>
+            </div>
+          </template>
+          <div v-loading="overallAiLoading">
+            <AiAnalysis :ai-analysis="overallAiAnalysis" />
+          </div>
+        </el-card>
+      </el-col>
+    </el-row>
+
+    <div class="container-header" style="margin-top: 20px;">
       <el-form inline label-width="80" :model="searchModel" class="select-box">
-        <!-- <el-form-item label="状态" prop="status">
-          <el-select size="large" placeholder="选择状态" style="width: 180px" v-model="searchModel.status" clearable
-            @change="handleSearch">
-            <el-option v-for="item in statusOptions" :key="item.id" :label="item.label" :value="item.id" />
-          </el-select>
-        </el-form-item> -->
         <el-form-item label="课程" prop="courseId">
           <el-select size="large" placeholder="选择课程" style="width: 180px" v-model="searchModel.courseId" clearable
             @change="handleSearch">
@@ -434,25 +459,6 @@ onMounted(async () => {
       </el-col>
     </el-row>
 
-
-    <el-row :gutter="20" style="margin-top: 20px;">
-      <el-col :span="24">
-        <el-card shadow="hover">
-          <template #header>
-            <div class="card-header">
-              <span>🤖 AI 作业分析</span>
-              <el-button size="small" type="primary" @click="refreshOverallSuggestion" :loading="overallAiLoading">
-                <i class="fas fa-sync-alt"></i> 刷新分析
-              </el-button>
-            </div>
-          </template>
-          <div v-loading="overallAiLoading">
-            <AiAnalysis :ai-analysis="overallAiAnalysis" />
-          </div>
-        </el-card>
-      </el-col>
-    </el-row>
-
     <el-card shadow="always" class="section-content">
       <template #header>
         <span>作业列表</span>
@@ -469,11 +475,6 @@ onMounted(async () => {
         <el-table-column label="课程">
           <template #default="{ row }">
             <span>{{ row.courseName }}</span>
-          </template>
-        </el-table-column>
-        <el-table-column label="题目数量">
-          <template #default="{ row }">
-            <span>{{ row.questionCount }}</span>
           </template>
         </el-table-column>
         <el-table-column label="总分">
@@ -510,9 +511,8 @@ onMounted(async () => {
       <template #footer>
         <!-- 分页区域 -->
         <el-pagination :current-page="pageInfo.page" :page-size="pageInfo.pageSize" :total="pageInfo.total"
-          :page-sizes="[10, 20, 50, 100]" layout="total, sizes, prev, pager, next, jumper"
-          @current-change="() => $emit('update:pageInfo', { page: $event, pageSize: pageInfo.pageSize })"
-          @size-change="() => $emit('update:pageInfo', { page: pageInfo.page, pageSize: $event })"></el-pagination>
+          :page-sizes="[5, 10, 20, 50, 100]" layout="total, sizes, prev, pager, next, jumper"
+          @size-change="handleSizeChange" @current-change="handlePageChange"></el-pagination>
       </template>
     </el-card>
     <!-- 作业详情弹窗 -->
@@ -534,16 +534,14 @@ onMounted(async () => {
               <div class="detail-text">
                 <h4>我的得分：{{ currentHomework.scoreAnalysis.score }}</h4>
                 <h4>班级平均分：{{ currentHomework.scoreAnalysis.classAvg }}</h4>
-                <h4>相差：{{ currentHomework.scoreAnalysis.diffFromAvg }}</h4>
                 <h4>总分：{{ currentHomework.totalScore }}</h4>
               </div>
               <div class="echart-desc">
+                第
                 <div style="font-size: 3rem; font-weight: 700; color: #1d4e7c">
                   {{ currentHomework.scoreAnalysis.rank }}
                 </div>
-                <div style="font-size: 1.1rem; margin-top: 10px">
-                  超过全班 <strong>{{ Math.round((1 - currentHomework.scoreAnalysis.rank / 45) * 100) }}%</strong> 的同学
-                </div>
+                名
               </div>
             </div>
           </el-descriptions-item>
@@ -656,6 +654,9 @@ onMounted(async () => {
     flex-wrap: wrap;
 
     .echart-desc {
+      display: flex;
+      justify-content: space-between;
+      gap: 20px;
       text-align: center;
     }
 

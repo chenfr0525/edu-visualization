@@ -27,12 +27,12 @@ const statusCardData = computed(() => [
     title: '考试总数',
   },
   {
-    statNum: statBoxes.value.aboveAvgCount,
-    title: '超平均分考试数',
+    statNum: statBoxes.value.completedExams,
+    title: '完成考试数',
   },
   {
-    statNum: statBoxes.value.avgRank,
-    title: '平均排名',
+    statNum: statBoxes.value.aboveAvgCount,
+    title: '超平均分考试数',
   },
   {
     statNum: statBoxes.value.avgScore,
@@ -42,11 +42,9 @@ const statusCardData = computed(() => [
 
 // 搜索表单
 const searchModel = ref({
-  status: '',
   courseId: '',
 })
 // 选项数据
-const statusOptions = ref([{ value: 'UPCOMING', label: '未开始' }, { value: 'ONGOING', label: '进行中' }, { value: 'COMPLETED', label: '已完成' }])
 const courseOptions = ref([])
 
 // 考试列表
@@ -210,7 +208,7 @@ const loadaiSuggestion = async (examId, forceRefresh = false) => {
     const res = await api({
       targetType: 'STUDENT',
       targetId: userInfo.value.id,
-      reportType: `EXAM_ANALYSIS_${examId}`,  // 关键：reportType 需要包含 examId
+      reportType: `EXAM_ANALYSIS_${examId}`,
       forceRefresh: forceRefresh
     })
     if (res && res.data) {
@@ -233,7 +231,7 @@ const refreshAiAnalysis = (examId) => {
 // 加载状态选项
 const loadStatusCardData = async () => {
   try {
-    const res = await gradeApi.getStatusCardData(userInfo.value?.id || "1")
+    const res = await gradeApi.getStatusCardData(userInfo.value?.id, searchModel.value.courseId)
     if (res && res.data) {
       statBoxes.value = res.data
     }
@@ -269,11 +267,10 @@ const loadExamList = async () => {
   loading.value = true
   try {
     const res = await gradeApi.getExamList(userInfo.value?.id, {
-      status: searchModel.value.status,
       courseId: searchModel.value.courseId,
     })
     if (res && res.data) {
-      examList.value = res.data.list
+      examList.value = res.data || []
     }
   } catch (error) {
     console.error('加载考试列表失败:', error)
@@ -374,12 +371,13 @@ const loadExamDetail = async (examId) => {
 }
 const handleExamClick = async (exam) => {
   await loadExamDetail(exam.id)
-  await loadaiSuggestion(exam.id, false)
   detailDrawerVisible.value = true
+  loadaiSuggestion(exam.id, false)
 }
 // 刷新所有数据
 const refreshData = async () => {
   await Promise.all([
+    loadStatusCardData(),
     loadExamList(),
     loadMyGradeTrend()
   ])
@@ -416,13 +414,6 @@ onMounted(async () => {
 
 <template>
   <div class="grade-analysis" ref="containerRef" v-loading="loading">
-    <div class="section-content">
-      <el-row :gutter="20">
-        <el-col :span="6" v-for="item in statusCardData" :key="item.title">
-          <StatBox :title="item.title" :stat-num="item.statNum" :rate="item.rate" />
-        </el-col>
-      </el-row>
-    </div>
     <el-row style="margin-top: 20px;margin-bottom: 20px;">
       <el-col :span="24">
         <el-card shadow="always">
@@ -466,6 +457,18 @@ onMounted(async () => {
       <div class="content-header">
         <h4><i class="fas fa-list"></i> 近期考试</h4>
       </div>
+      <div style="margin-bottom:20px">
+        <el-row :gutter="20">
+          <el-col :span="6" v-for="item in statusCardData" :key="item.title">
+            <StatBox :title="item.title" :stat-num="item.statNum" :rate="item.rate" />
+          </el-col>
+        </el-row>
+      </div>
+      <div class="container-content">
+        <el-card shadow="always">
+          <EChart :options="gradeTrendOption" height="400px" />
+        </el-card>
+      </div>
       <div class="content-body">
         <el-empty v-if="examList.length === 0 && !loading" description="暂无考试数据" />
         <TestBox v-for="exam in examList" :key="exam.id" :exam="exam" :status="exam?.status"
@@ -497,38 +500,27 @@ onMounted(async () => {
       </el-card>
     </div> -->
 
-    <div class="container-content">
-      <el-card shadow="always">
-        <EChart :options="gradeTrendOption" height="400px" />
-      </el-card>
-    </div>
 
-    <!-- 作业详情弹窗 -->
-    <el-drawer v-model="detailDrawerVisible" title="作业详情" direction="rtl" size="800px">
+
+    <!-- 考试详情弹窗 -->
+    <el-drawer v-model="detailDrawerVisible" title="考试详情" direction="rtl" size="800px">
       <div class="work-detail" v-if="currentExam">
         <el-descriptions :column="1" border>
           <el-descriptions-item label="课程名称">
             {{ currentExam.courseName }}
           </el-descriptions-item>
-          <el-descriptions-item label="作业名称">
+          <el-descriptions-item label="考试名称">
             {{ currentExam.name }}
           </el-descriptions-item>
           <el-descriptions-item label="描述">
             {{ currentExam.description || '-' }}
           </el-descriptions-item>
-          <el-descriptions-item label="得分情况"
-            v-if="currentExam.scoreAnalysis.score && currentExam.scoreAnalysis.score !== -1">
+          <el-descriptions-item label="得分情况" v-if="currentExam.scoreAnalysis?.myScore">
             <div class="score-detail">
               <div class="detail-text">
-                <h4>我的得分：{{ currentExam.scoreAnalysis.score }}</h4>
+                <h4>我的得分：{{ currentExam.scoreAnalysis?.myScore }}</h4>
                 <h4>班级平均分：{{ currentExam.scoreAnalysis.classAvg }}</h4>
-                <h4>相差：{{ currentExam.scoreAnalysis.diffFromAvg }}</h4>
-                <h4>总分：{{ currentExam.totalScore }}</h4>
-              </div>
-              <div class="echart-desc">
-                <div style="font-size: 2rem; font-weight: 700; color: #1d4e7c">
-                  班级第 {{ currentExam.scoreAnalysis.rank }} 名
-                </div>
+                <h4>总分：{{ currentExam.fullScore }}</h4>
               </div>
             </div>
           </el-descriptions-item>
