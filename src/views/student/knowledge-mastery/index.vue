@@ -44,7 +44,13 @@ const statBoxes = computed(() => [
 // 数据状态
 const courseOptions = ref([])
 const treeData = ref([])
-const donutData = ref([])
+const donutData = computed(() => {
+  return treeData.value[0]?.children ? treeData.value[0]?.children.map(item => ({
+    value: item?.masteryRate || 0,
+    name: item?.label || '未命名',
+    itemStyle: { color: getItemStyleColors(item?.masteryLevel) }
+  })) : []
+})
 const radarData = ref({
   indicators: [],
   myValues: [],
@@ -99,7 +105,7 @@ const refreshKnowledgeAiAnalysis = () => {
 // 加载统计数据
 const loadStats = async () => {
   try {
-    const res = await knowledgeApi.getStats(userInfo.value.id)
+    const res = await knowledgeApi.getStats(userInfo.value.id, searchModel.value.courseId)
     if (res && res.data) {
       statsData.value = res.data
     }
@@ -131,48 +137,9 @@ const loadKnowledgeTree = async () => {
     const res = await knowledgeApi.getKnowledgeTree(userInfo.value?.id || "1", searchModel.value.courseId)
     if (res && res.data) {
       treeData.value = res.data || []
-      console.log('tree', treeData.value)
     }
   } catch (error) {
     console.error('加载知识点树失败:', error)
-  }
-}
-
-// 加载环图数据
-const loadDonutData = async () => {
-  if (!searchModel.value.courseId) return
-
-  try {
-    const res = await knowledgeApi.getDonutData(userInfo.value?.id || "1", searchModel.value.courseId)
-    if (res && res.data) {
-      donutData.value = res.data?.courseMasteryList.length > 0 ? [] : [
-        {
-          courseId: 1,
-          courseName: "Java程序设计",
-          masteryRate: 73.60,
-          masteryLevel: "warning",
-          knowledgePointCount: 5
-        },
-        {
-          courseId: 2,
-          courseName: "数据库原理",
-          masteryRate: 67.50,
-          masteryLevel: "warning",
-          knowledgePointCount: 4
-        },
-        {
-          courseId: 3,
-          courseName: "高等数学",
-          masteryRate: 73.75,
-          masteryLevel: "warning",
-          knowledgePointCount: 4
-        }
-      ]
-
-      donutData.value = donutData.value.map(item => ({ value: item?.masteryRate, name: item?.courseName, itemStyle: { color: getItemStyleColors(item?.masteryLevel) } }))
-    }
-  } catch (error) {
-    console.error('加载环图数据失败:', error)
   }
 }
 
@@ -182,7 +149,7 @@ const getItemStyleColors = (level) => {
     warning: '#f59e0b',
     poor: '#ef4444'
   }
-  return colors[level] || red
+  return colors[level] || '#ef4444'
 }
 
 // 加载雷达图数据
@@ -219,7 +186,6 @@ const loadAllData = async () => {
   try {
     await Promise.all([
       loadKnowledgeTree(),
-      loadDonutData(),
       loadRadarData(),
       loadStats(),
       loadKnowledgeAiAnalysis()
@@ -279,7 +245,6 @@ const handleNodeClick = async (data, node) => {
     detailDrawerVisible.value = true
   }
 }
-
 // 环图配置
 const donutOption = computed(() => ({
   title: {
@@ -313,7 +278,7 @@ const donutOption = computed(() => ({
         fontSize: 11
       },
       emphasis: { scale: false },
-      data: donutData.value.length > 0 ? donutData.value : [
+      data: donutData.value?.length > 0 ? donutData.value : [
         { value: 0, name: '暂无数据', itemStyle: { color: '#ccc' } }
       ]
     }
@@ -350,7 +315,7 @@ const radarOption = computed(() => ({
     {
       type: "radar",
       data: [{
-        value: radarData.value.values,
+        value: radarData.value.myValues || [],
         name: "我的掌握度"
       }],
       areaStyle: {
@@ -468,6 +433,15 @@ onMounted(async () => {
       </el-col>
     </el-row>
 
+    <!-- 统计卡片 -->
+    <div style="margin-top: 20px;">
+      <el-row :gutter="20">
+        <el-col :span="6" v-for="item in statBoxes" :key="item.title">
+          <StatBox :title="item.title" :stat-num="item.statNum" :rate="item.rate" />
+        </el-col>
+      </el-row>
+    </div>
+
     <!-- 知识点树形结构 -->
     <div class="knowledge-list">
       <el-row :gutter="20" style="margin-top: 20px;">
@@ -513,15 +487,6 @@ onMounted(async () => {
               </template>
             </el-tree>
           </el-card>
-        </el-col>
-      </el-row>
-    </div>
-
-    <!-- 统计卡片 -->
-    <div style="margin-top: 20px;">
-      <el-row :gutter="20">
-        <el-col :span="6" v-for="item in statBoxes" :key="item.title">
-          <StatBox :title="item.title" :stat-num="item.statNum" :rate="item.rate" />
         </el-col>
       </el-row>
     </div>

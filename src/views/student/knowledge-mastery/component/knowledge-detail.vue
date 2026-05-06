@@ -1,4 +1,5 @@
 <script setup>
+import { formatExamDate } from '@/utils/export'
 import { ref, computed, } from 'vue'
 
 const props = defineProps({
@@ -74,7 +75,7 @@ const progressColor = (rate) => {
             :color="progressColor(currentNode.masteryRate)" :width="120" :stroke-width="12" />
         </div>
         <div class="mastery-rate">
-          <h3>班级平均掌握程度</h3>
+          <h3>课程选修平均掌握度</h3>
           <el-progress type="circle" :percentage="currentNode?.classAvgMasteryRate"
             :color="progressColor(currentNode.classAvgMasteryRate)" :width="120" :stroke-width="12" />
         </div>
@@ -85,15 +86,46 @@ const progressColor = (rate) => {
         </div>
       </div>
 
-      <el-descriptions v-if="currentNode?.sourceDetails?.length > 0" :column="1" border style="margin-top: 20px;">
-        <el-descriptions-item v-for="item in currentNode?.sourceDetails" :label="item.sourceName">
-          <div>
-            <h4>我的得分：{{ item.myScore }}</h4>
-            <h4>班级平均分：{{ item.classAvgScoreRate }}</h4>
-            <h4>满分: {{ item.fullScore }}</h4>
-          </div>
-        </el-descriptions-item>
+      <el-descriptions :column="2" border style="margin-top: 20px;">
+        <el-descriptions-item label="课程">{{ currentNode?.courseName || '-' }}</el-descriptions-item>
+        <el-descriptions-item label="知识点">{{ currentNode?.knowledgePointName || '-' }}</el-descriptions-item>
+        <el-descriptions-item label="我的掌握率">{{ currentNode?.masteryRate ?? 0 }}%</el-descriptions-item>
+        <el-descriptions-item label="课程选修平均">{{ currentNode?.classAvgMasteryRate ?? 0 }}%</el-descriptions-item>
+        <el-descriptions-item label="薄弱点数量">{{ currentNode?.weakPoints?.length || 0 }}</el-descriptions-item>
+        <el-descriptions-item label="来源记录数">{{ currentNode?.sourceDetails?.length || 0 }}</el-descriptions-item>
       </el-descriptions>
+
+      <div v-if="currentNode?.description" class="desc-card">
+        <h4><i class="fas fa-book-open"></i>知识点说明</h4>
+        <p>{{ currentNode.description }}</p>
+      </div>
+
+      <div v-if="currentNode?.trendData?.length > 0" class="trend-list">
+        <h4><i class="fas fa-chart-line"></i>学习趋势</h4>
+        <el-timeline>
+          <el-timeline-item v-for="(item, idx) in currentNode.trendData"
+            :key="`${item.sourceType}-${item.sourceName}-${idx}`" :timestamp="formatExamDate(item.date)">
+            <span>{{ item.sourceName }}（{{ item.sourceType }}）</span>
+            <el-tag type="primary" style="margin-left: 10px;">得分率 {{ item.scoreRate ?? 0 }}%</el-tag>
+          </el-timeline-item>
+        </el-timeline>
+      </div>
+
+      <div v-if="currentNode?.sourceDetails?.length > 0" class="source-table">
+        <h4><i class="fas fa-table"></i>来源明细</h4>
+        <el-table :data="currentNode.sourceDetails" size="small" border>
+          <el-table-column prop="sourceName" label="来源" min-width="200" />
+          <el-table-column prop="sourceType" label="类型" width="100" />
+          <el-table-column prop="myScoreRate" label="我的得分率" width="120">
+            <template #default="{ row }">{{ row.myScoreRate ?? 0 }}%</template>
+          </el-table-column>
+          <el-table-column prop="classAvgScoreRate" label="课程选修平均得分率" width="170">
+            <template #default="{ row }">{{ row.classAvgScoreRate ?? 0 }}%</template>
+          </el-table-column>
+          <el-table-column prop="myScore" label="我的得分" width="100" />
+          <el-table-column prop="fullScore" label="满分" width="80" />
+        </el-table>
+      </div>
 
       <!-- 薄弱点分析 -->
       <div class="weak-points" v-if="currentNode?.weakPoints?.length > 0">
@@ -187,6 +219,28 @@ const progressColor = (rate) => {
         }
       }
     }
+  }
+
+  .desc-card {
+    margin-top: 20px;
+    padding: 14px 16px;
+    border-radius: 8px;
+    background: #f8fafc;
+    border: 1px solid #e5e7eb;
+
+    p {
+      margin: 0;
+      color: #374151;
+      line-height: 1.6;
+    }
+  }
+
+  .trend-list {
+    margin-top: 20px;
+  }
+
+  .source-table {
+    margin-top: 20px;
   }
 
   .suggestion-content {

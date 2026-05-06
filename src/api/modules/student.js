@@ -161,10 +161,11 @@ export const knowledgeApi = {
     })
   },
 
-  getStats(studentId) {
+  getStats(studentId, courseId) {
     return request({
       url: `/analysis/student/knowledge/statistics/${studentId}`,
       method: 'get',
+      params: { courseId },
     })
   },
 
@@ -173,7 +174,7 @@ export const knowledgeApi = {
     return request({
       url: `/analysis/student/knowledge/progress/${studentId}`,
       method: 'get',
-      // params: { courseId },
+      params: { courseId },
     })
   },
 
