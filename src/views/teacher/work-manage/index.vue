@@ -675,7 +675,6 @@ const homeworkForm = ref({
   description: '',
   knowledgePointIds: [],
   courseId: '',
-  questionCount: 10,
   totalScore: 100,
   deadline: ''
 })
@@ -685,7 +684,6 @@ const homeworkDialogTitle = computed(() => homeworkForm.value.id ? '编辑作业
 const homeworkRules = {
   name: [{ required: true, message: '请输入作业名称', trigger: 'blur' }],
   courseId: [{ required: true, message: '请选择课程', trigger: 'change' }],
-  questionCount: [{ required: true, message: '请输入题目数量', trigger: 'blur' }],
   totalScore: [{ required: true, message: '请输入总分', trigger: 'blur' }],
   deadline: [{ required: true, message: '请选择截止时间', trigger: 'change' }]
 }
@@ -704,7 +702,6 @@ const editHomework = (homework) => {
     description: homework.description || '',
     knowledgePointIds: homework.knowledgePointIds || [],
     courseId: homework.courseId,
-    questionCount: homework.questionCount || 10,
     totalScore: homework.totalScore || 100,
     deadline: homework.deadline || ''
   }
@@ -722,7 +719,6 @@ const resetHomeworkForm = () => {
     description: '',
     knowledgePointIds: [],
     courseId: '',
-    questionCount: 10,
     totalScore: 100,
     deadline: ''
   }
@@ -1055,7 +1051,6 @@ onMounted(async () => {
       <el-table :data="homeworkList" v-loading="loading" stripe border style="width: 100%">
         <el-table-column prop="name" label="作业名称" width="200" />
         <el-table-column prop="courseName" label="课程" width="130" />
-        <el-table-column prop="questionCount" label="题目数量" width="80" />
         <el-table-column prop="submittedCount" label="提交量" width="120">
           <template #default="{ row }">
             <div class="info-row">
@@ -1214,11 +1209,6 @@ onMounted(async () => {
             <el-option v-for="kp in currentCourseKnowledgePoints" :key="kp.id" :label="kp.name" :value="kp.id" />
           </el-select>
         </el-form-item>
-
-        <el-form-item label="题目数量" prop="questionCount">
-          <el-input-number v-model="homeworkForm.questionCount" :min="1" :max="100" :step="1" style="width: 100%" />
-        </el-form-item>
-
         <el-form-item label="总分" prop="totalScore">
           <el-input-number v-model="homeworkForm.totalScore" :min="0" :max="1000" :step="10" style="width: 100%" />
         </el-form-item>

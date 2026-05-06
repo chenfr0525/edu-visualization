@@ -143,7 +143,7 @@ const handleRegister = async () => {
               </el-form>
             </el-tab-pane>
             <!-- 注册表单 -->
-            <el-tab-pane label="注册" name="register">
+            <!-- <el-tab-pane label="注册" name="register">
               <el-form :model="registerForm" label-position="top">
                 <el-form-item label="用户名">
                   <el-input size="large" v-model="registerForm.username" placeholder="请输入用户名">
@@ -183,7 +183,7 @@ const handleRegister = async () => {
                   </el-button>
                 </el-form-item>
               </el-form>
-            </el-tab-pane>
+            </el-tab-pane> -->
           </el-tabs>
         </div>
         <div class="footer">
