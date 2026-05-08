@@ -64,9 +64,11 @@ const statistics = reactive({
   knowledgePointCount: 0
 })
 
-// 图表数据
-let knowledgeChart = null
+// 图表实例
 let trendChart = null
+let knowledgeChart = null
+let examTrendChart = null
+let homeworkChart = null
 let distributionChart = null
 
 // 图表数据存储
@@ -250,7 +252,8 @@ const fetchAllData = async () => {
 
     await nextTick()
     initKnowledgeChart()
-    initTrendChart()
+    initExamTrendChart()
+    initHomeworkTrendChart()
     initDistributionChart()
   } catch (error) {
     console.error('加载数据失败:', error)
@@ -338,18 +341,19 @@ const initKnowledgeChart = () => {
   })
 }
 
-// 初始化成绩趋势图
-const initTrendChart = () => {
-  const chartDom = document.getElementById('trendChart')
+// 初始化考试趋势图
+const initExamTrendChart = () => {
+  const chartDom = document.getElementById('examTrendChart')
   if (!chartDom) return
   if (trendChart) trendChart.dispose()
 
-  const trendData = chartData.value.scoreTrend || []
+  const trendData = chartData.value.examTrend || []
   if (trendData.length === 0) return
 
   trendChart = echarts.init(chartDom)
 
   trendChart.setOption({
+    title: { text: '考试平均分趋势', left: 'center', textStyle: { fontSize: 14 } },
     tooltip: {
       trigger: 'axis',
       formatter: (params) => {
@@ -374,21 +378,57 @@ const initTrendChart = () => {
       type: 'line',
       data: trendData.map(item => Number(item.score)),
       smooth: true,
-      lineStyle: {
-        color: '#409eff',
-        width: 3
-      },
-      areaStyle: {
-        opacity: 0.1,
-        color: '#409eff'
-      },
+      lineStyle: { color: '#409eff', width: 3 },
+      areaStyle: { opacity: 0.1, color: '#409eff' },
       symbol: 'circle',
       symbolSize: 8,
-      label: {
-        show: true,
-        position: 'top',
-        formatter: '{c}分'
+      label: { show: true, position: 'top', formatter: '{c}分' }
+    }]
+  })
+}
+
+// 初始化作业趋势图
+const initHomeworkTrendChart = () => {
+  const chartDom = document.getElementById('homeworkTrendChart')
+  if (!chartDom) return
+  if (homeworkChart) homeworkChart.dispose()
+
+  const trendData = chartData.value.homeworkTrend || []
+  if (trendData.length === 0) return
+
+  homeworkChart = echarts.init(chartDom)
+
+  homeworkChart.setOption({
+    title: { text: '作业平均分趋势', left: 'center', textStyle: { fontSize: 14 } },
+    tooltip: {
+      trigger: 'axis',
+      formatter: (params) => {
+        return `${params[0].axisValue}<br/>平均分: ${params[0].value}分`
       }
+    },
+    xAxis: {
+      type: 'category',
+      data: trendData.map(item => item.name),
+      axisLabel: {
+        rotate: trendData.length > 6 ? 30 : 0,
+        interval: 0
+      }
+    },
+    yAxis: {
+      type: 'value',
+      name: '平均分',
+      min: 50,
+      max: 100
+    },
+    series: [{
+      type: 'line',
+      data: trendData.map(item => Number(item.score)),
+      smooth: true,
+      lineStyle: { color: '#67c23a', width: 3 },
+      areaStyle: { opacity: 0.1, color: '#67c23a' },
+      symbol: 'circle',
+      symbolSize: 8,
+      label: { show: true, position: 'top', formatter: '{c}分' }
     }]
   })
 }
@@ -875,7 +915,8 @@ onMounted(async () => {
 
   window.addEventListener('resize', () => {
     if (knowledgeChart) knowledgeChart.resize()
-    if (trendChart) trendChart.resize()
+    if (examTrendChart) examTrendChart.resize()
+    if (homeworkChart) homeworkChart.resize()
     if (distributionChart) distributionChart.resize()
     if (kpDetailChart) kpDetailChart.resize()
   })
@@ -885,7 +926,8 @@ onMounted(() => {
   fetchAiAnalysis()
   window.addEventListener('resize', () => {
     if (knowledgeChart) knowledgeChart?.resize()
-    if (trendChart) trendChart?.resize()
+    if (examTrendChart) examTrendChart?.resize()
+    if (homeworkChart) homeworkChart?.resize()
     if (distributionChart) distributionChart?.resize()
     if (kpDetailChart) kpDetailChart?.resize()
   })
@@ -1033,22 +1075,21 @@ onMounted(() => {
       </el-table>
     </el-card>
 
-    <!-- 可视化图表 -->
     <el-row :gutter="20" style="margin-top: 20px;">
       <el-col :span="12">
         <el-card class="chart-card" shadow="hover">
           <div class="chart-header">
-            <h3><i class="fas fa-chart-bar"></i> 知识点掌握度排行</h3>
+            <h3><i class="fas fa-chart-line"></i> 考试平均分趋势</h3>
           </div>
-          <div id="knowledgeChart" class="chart-container" style="height: 400px"></div>
+          <div id="examTrendChart" class="chart-container" style="height: 300px"></div>
         </el-card>
       </el-col>
       <el-col :span="12">
-        <el-card class="chart-card" shadow="hover">
+        <el-card class="chart-card" shadow="hover" style="margin-top: 20px;">
           <div class="chart-header">
-            <h3><i class="fas fa-chart-line"></i> 成绩趋势</h3>
+            <h3><i class="fas fa-chart-line"></i> 作业平均分趋势</h3>
           </div>
-          <div id="trendChart" class="chart-container" style="height: 400px"></div>
+          <div id="homeworkTrendChart" class="chart-container" style="height: 300px"></div>
         </el-card>
       </el-col>
     </el-row>
@@ -1057,9 +1098,13 @@ onMounted(() => {
       <el-col :span="12">
         <el-card class="chart-card" shadow="hover">
           <div class="chart-header">
+            <h3><i class="fas fa-chart-bar"></i> 知识点掌握度排行</h3>
+          </div>
+          <div id="knowledgeChart" class="chart-container" style="height: 300px"></div>
+          <div class="chart-header">
             <h3><i class="fas fa-chart-pie"></i> 成绩分布</h3>
           </div>
-          <div id="distributionChart" class="chart-container" style="height: 360px"></div>
+          <div id="distributionChart" class="chart-container" style="height: 300px"></div>
         </el-card>
       </el-col>
       <el-col :span="12">

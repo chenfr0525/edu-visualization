@@ -14,7 +14,7 @@ export function setupPermission() {
     const menuStore = useMenuStore()
     //判断是否登录
     const isLogin = authStore.token && authStore.userRole
-    console.log('用户登录状态:', isLogin)
+
     if (isLogin) {
       if (to.path === '/login') {
         authStore.logout()

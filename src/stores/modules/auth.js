@@ -44,6 +44,7 @@ export const useAuthStore = defineStore(
     function logout() {
       const menuStore = useMenuStore()
       token.value = ''
+      userRole.value = ''
       user.value = null
       menuStore.clearRoutes()
     }

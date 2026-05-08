@@ -40,9 +40,17 @@ export const tDashboardApi = {
     })
   },
 
-  getDashboardData(classId) {
+  getDashboardData(classId, courseId) {
     return request({
       url: `/dashboard/teacher/class/${classId}`,
+      method: 'get',
+      params: { courseId },
+    })
+  },
+
+  getClassCourses(classId) {
+    return request({
+      url: `/dashboard/teacher/class/${classId}/courses`,
       method: 'get',
     })
   },
@@ -64,10 +72,10 @@ export const tDashboardApi = {
     })
   },
 
-  //获取作业数据分析
+  //获取作业成绩分布（按A/B/C/D/F等级）
   getHomeworkData(classId) {
     return request({
-      url: `/dashboard/teacher/class/${classId}/summary`,
+      url: `/dashboard/teacher/class/${classId}/homework-grade-distribution`,
       method: 'get',
     })
   },

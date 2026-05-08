@@ -937,8 +937,8 @@ const initAnalysisCharts = () => {
 }
 const viewExamDetail = async (exam) => {
   await loadDetailData(exam?.id)
-  await fetchExamAiAnalysis(exam?.id)
   drawerVisible.value = true
+  fetchExamAiAnalysis(exam?.id)
 }
 
 const loadDetailData = async (examId) => {
@@ -1630,11 +1630,11 @@ onMounted(async () => {
               </h4>
               <h4 style="display: flex;align-items: center; height: 20px;">最高分:<p>{{ analysisDetailData?.highestScore ||
                 '-'
-                  }}</p>
+              }}</p>
               </h4>
               <h4 style="display: flex;align-items: center; height: 20px;">最低分:<p>{{ analysisDetailData?.lowestScore ||
                 '-'
-                  }}</p>
+              }}</p>
               </h4>
             </div>
           </el-descriptions-item>

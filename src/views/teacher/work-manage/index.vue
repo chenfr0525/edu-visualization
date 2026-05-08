@@ -218,14 +218,14 @@ const selectedHomeworkForGrade = ref(null)
 const selectedHomeworkGradeInfo = ref(null)
 
 // 打开作业成绩导入弹窗
-const showHomeworkGradeImportDialog = () => {
+const showHomeworkGradeImportDialog = (homework) => {
   // 如果没有作业列表，先加载
   if (homeworkList.value.length === 0) {
     fetchHomeworkList()
   }
   homeworkGradeParseResult.value = null
   selectedHomeworkGradeFile.value = null
-  selectedHomeworkForGrade.value = null
+  selectedHomeworkForGrade.value = homework?.id || null
   selectedHomeworkGradeInfo.value = null
   homeworkGradeImportDialogVisible.value = true
   setTimeout(() => {
@@ -603,17 +603,6 @@ const deleteHomework = async (homework) => {
     }
   }).catch(() => { })
 }
-
-// 提交批改
-const submitGradeApi = async (submissionId, answers, totalScore) => {
-  const res = await tHomeworkApi.submitGrade(submissionId, { answers, totalScore })
-  if (res && res.code === 200) {
-    ElMessage.success('批改成功')
-    return true
-  }
-  return false
-}
-
 const fetchHomeworkAnalysis = async (homeworkId) => {
   const res = await tHomeworkApi.getHomeworkAnalysis(homeworkId)
   if (res && res.data) {
@@ -773,10 +762,10 @@ const submitHomework = async () => {
 }
 
 const viewAnalysis = async (homework) => {
-  const data = await fetchHomeworkAnalysis(homework?.id)
-  analysisData.value = data
   await fetchHomeworkAiAnalysis(homework?.id)
   analysisDialogVisible.value = true
+  const data = await fetchHomeworkAnalysis(homework?.id)
+  analysisData.value = data
   setTimeout(() => {
     initAnalysisCharts()
   }, 100)
@@ -1040,10 +1029,10 @@ onMounted(async () => {
         <stats-card type="avg-score" icon="fa-clock" title="平均分" :value="statistics.avgScore" />
       </el-col>
       <el-col :span="6">
-        <stats-card type="completed" icon="fa-check-circle" title="已批改" :value="statistics.avgPassRate" />
+        <stats-card type="completed" icon="fa-check-circle" title="及格率" :value="statistics.avgPassRate" />
       </el-col>
       <el-col :span="6">
-        <stats-card type="pending" icon="fa-chart-line" title="按时率" :value="statistics.onTimeRate" />
+        <stats-card type="pending" icon="fa-chart-line" title="提交率" :value="statistics.onTimeRate" />
       </el-col>
     </el-row>
 
@@ -1090,7 +1079,7 @@ onMounted(async () => {
             <el-button link type="primary" size="small" @click="deleteHomework(row)">
               <i class="fas fa-trash"></i> 删除
             </el-button>
-            <el-button link type="primary" size="small" @click="showHomeworkGradeImportDialog">
+            <el-button link type="primary" size="small" @click="showHomeworkGradeImportDialog(row)">
               <i class="fas fa-edit"></i> 录入成绩
             </el-button>
             <el-button link type="primary" size="small" @click="exportHomeworkGrades(row)">
@@ -1181,9 +1170,9 @@ onMounted(async () => {
       </div>
       <template #footer>
         <el-button @click="analysisDialogVisible = false">关闭</el-button>
-        <el-button type="primary" @click="exportAnalysisReport(analysisData)">
+        <!-- <el-button type="primary" @click="exportAnalysisReport(analysisData)">
           <i class="fas fa-file-pdf"></i> 导出报告
-        </el-button>
+        </el-button> -->
         <el-button type="success" @click="exportAnalysisReportExcel">
           <i class="fas fa-file-excel"></i> 导出Excel报告
         </el-button>

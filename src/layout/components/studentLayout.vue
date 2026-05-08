@@ -62,7 +62,7 @@ const handleLogout = () => {
 }
 
 const activeMenu = computed(() => route.path)
-console.log('当前路径:', props.menuList)
+
 onMounted(async () => {
   await loadUserInfo()
 })

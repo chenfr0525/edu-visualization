@@ -93,8 +93,6 @@ const handleRegister = async () => {
         <ul class="feature-list">
           <li><i class="fas fa-check-circle"></i> 个人学习驾驶舱 · 实时追踪</li>
           <li><i class="fas fa-check-circle"></i> 教师教学看板 · 精准分析</li>
-          <li><i class="fas fa-check-circle"></i> 多角色权限 · 差异化视图</li>
-          <li><i class="fas fa-check-circle"></i> JWT 安全认证 · 数据加密</li>
         </ul>
       </div>
 

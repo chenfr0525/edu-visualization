@@ -1,14 +1,12 @@
 <script setup>
 import { ref, computed, onMounted, watch } from 'vue'
-import { exportToImage, exportToPDF } from '@/utils/export'
 import StatBox from '../dashboard/component/stat-box.vue'
 import { homeworkApi, unifiedAiApi } from '@/api/index.js'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { ElMessage } from 'element-plus'
 import { authApi } from '@/api/index.js'
 import EChart from '@/components/EChart.vue'
 import AiAnalysis from '@/components/AiAnalysis.vue'
 
-const containerRef = ref(null)
 const userInfo = ref(null)
 const loading = ref(false)
 const detailDrawerVisible = ref(false)
@@ -375,14 +373,6 @@ const handlePageChange = (page) => {
   loadHomeworkList()
 }
 
-const handleExportImage = () => {
-  exportToImage(containerRef.value, '作业跟踪')
-}
-
-const handleExportPDF = () => {
-  exportToPDF(containerRef.value, '作业跟踪')
-}
-
 watch(() => pageInfo.value.page, () => {
   loadHomeworkList()
 })
@@ -404,7 +394,7 @@ onMounted(async () => {
 </script>
 
 <template>
-  <div class="homework-tracking" ref="containerRef" v-loading="loading">
+  <div class="homework-tracking" v-loading="loading">
 
 
     <el-row :gutter="20" style="margin-top: 20px;">

@@ -4,19 +4,11 @@ import { useRouter, useRoute } from 'vue-router'
 import { useAuthStore } from '@/stores/index.js'
 import { useAppStore } from '@/stores/index.js'
 import {
-  Monitor,
   ArrowDown,
   Fold,
   Expand,
-  Moon,
-  User,
-  Memo,
-  Warning,
-  Star,
-  Files,
-  MessageBox
 } from '@element-plus/icons-vue'
-import { ElMessageBox } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { authApi } from '@/api'
 
 const props = defineProps({
@@ -113,7 +105,7 @@ onMounted(async () => {
               <el-avatar :size="32" icon="UserFilled" />
               <span class="username" v-if="!appStore.isMobile">{{ userInfo?.user?.name }} ({{
                 userInfo?.user?.role === 'ADMIN'
-                ? '管理员' : '教师' }})</span>
+                  ? '管理员' : '教师' }})</span>
               <el-icon>
                 <ArrowDown />
               </el-icon>

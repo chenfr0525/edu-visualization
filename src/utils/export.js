@@ -385,17 +385,13 @@ export const exportHomeworkListToExcel = (data, fileName = '作业列表') => {
  * @param {string} fileName - 文件名
  */
 export const exportHomeworkGradesToExcel = (homeworkInfo, grades, fileName = '作业成绩单') => {
-  // 定义表头映射
+  // 定义表头映射（移除了总分、得分率、提交时间、批改时间）
   const headers = [
     { label: '序号', prop: 'index' },
     { label: '学号', prop: 'studentNo' },
     { label: '姓名', prop: 'studentName' },
     { label: '得分', prop: 'score' },
-    { label: '总分', prop: 'totalScore' },
-    { label: '得分率', prop: 'scoreRate' },
     { label: '状态', prop: 'status' },
-    { label: '提交时间', prop: 'submitTime' },
-    { label: '批改时间', prop: 'gradeTime' },
     { label: '批注', prop: 'feedback' },
   ]
 
@@ -414,18 +410,9 @@ export const exportHomeworkGradesToExcel = (homeworkInfo, grades, fileName = '�
     ...grades.map((item, idx) =>
       headers.map((header) => {
         if (header.prop === 'index') return idx + 1
-        if (header.prop === 'scoreRate') {
-          return item.totalScore ? `${((item.score / item.totalScore) * 100).toFixed(1)}%` : '-'
-        }
         if (header.prop === 'status') {
           if (!item.score && item.score !== 0) return '未批改'
           return item.score >= (homeworkInfo.passScore || 60) ? '及格' : '不及格'
-        }
-        if (header.prop === 'submitTime') {
-          return formatExamDate(item.submitTime) || '-'
-        }
-        if (header.prop === 'gradeTime') {
-          return formatExamDate(item.gradeTime) || '-'
         }
         return item[header.prop] ?? '-'
       }),
@@ -435,17 +422,13 @@ export const exportHomeworkGradesToExcel = (homeworkInfo, grades, fileName = '�
   // 创建工作表
   const ws = XLSX.utils.aoa_to_sheet(wsData)
 
-  // 设置列宽
+  // 设置列宽（移除了总分、得分率、提交时间、批改时间的列宽设置）
   ws['!cols'] = [
     { wch: 8 }, // 序号
     { wch: 15 }, // 学号
     { wch: 12 }, // 姓名
     { wch: 10 }, // 得分
-    { wch: 8 }, // 总分
-    { wch: 10 }, // 得分率
     { wch: 10 }, // 状态
-    { wch: 20 }, // 提交时间
-    { wch: 20 }, // 批改时间
     { wch: 30 }, // 批注
   ]
 
@@ -501,42 +484,24 @@ export const exportHomeworkAnalysisToExcel = (analysisData, fileName = '作业�
   const distributionSheet = XLSX.utils.aoa_to_sheet(distributionData)
   XLSX.utils.book_append_sheet(wb, distributionSheet, '成绩分布')
 
-  // 3. 学生成绩明细表
+  // 3. 学生成绩明细表（移除了总分、得分率、提交时间、批改时间）
   if (analysisData.studentGrades && analysisData.studentGrades.length > 0) {
-    const gradeHeaders = [
-      '序号',
-      '学号',
-      '姓名',
-      '得分',
-      '总分',
-      '得分率',
-      '提交时间',
-      '批改时间',
-      '批注',
-    ]
+    const gradeHeaders = ['序号', '学号', '姓名', '得分', '批注']
     const gradeRows = analysisData.studentGrades.map((item, idx) => [
       idx + 1,
       item.studentNo || '-',
       item.studentName || '-',
       item.score ?? '-',
-      item.totalScore || '-',
-      item.totalScore ? `${((item.score / item.totalScore) * 100).toFixed(1)}%` : '-',
-      formatExamDate(item.submitTime) || '-',
-      formatExamDate(item.gradeTime) || '-',
       item.feedback || '无',
     ])
     const gradeSheet = XLSX.utils.aoa_to_sheet([gradeHeaders, ...gradeRows])
-    // 设置列宽
+    // 设置列宽（移除了不需要的列宽设置）
     gradeSheet['!cols'] = [
-      { wch: 8 },
-      { wch: 15 },
-      { wch: 12 },
-      { wch: 10 },
-      { wch: 8 },
-      { wch: 10 },
-      { wch: 20 },
-      { wch: 20 },
-      { wch: 30 },
+      { wch: 8 }, // 序号
+      { wch: 15 }, // 学号
+      { wch: 12 }, // 姓名
+      { wch: 10 }, // 得分
+      { wch: 30 }, // 批注
     ]
     XLSX.utils.book_append_sheet(wb, gradeSheet, '学生成绩明细')
   }

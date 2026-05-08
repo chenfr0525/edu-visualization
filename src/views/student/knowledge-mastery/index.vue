@@ -9,7 +9,7 @@ import KnowledgeDetail from './component/knowledge-detail.vue'
 import StatBox from '../dashboard/component/stat-box.vue'
 import AiAnalysis from '@/components/AiAnalysis.vue'
 
-const containerRef = ref(null)
+const exportContentRef = ref(null)
 const loading = ref(false)
 const userInfo = ref(null)
 // 知识点AI分析数据
@@ -122,7 +122,6 @@ const loadCourseOptions = async () => {
       // 默认选中第一个课程
       if (courseOptions.value.length > 0) {
         searchModel.value.courseId = courseOptions.value[0]?.id
-        await loadAllData()
       }
     }
   } catch (error) {
@@ -368,15 +367,19 @@ const radarOption = computed(() => ({
 }))
 
 const handleExportImage = () => {
-  exportToImage(containerRef.value, '知识点掌握')
+  if (exportContentRef.value) {
+    exportToImage(exportContentRef.value, '知识点掌握')
+  } else {
+    ElMessage.warning('没有可导出的内容')
+  }
 }
 
 const handleExportPDF = () => {
-  exportToPDF(containerRef.value, '知识点掌握')
-}
-
-const handleSearch = () => {
-  loadAllData()
+  if (exportContentRef.value) {
+    exportToPDF(exportContentRef.value, '知识点掌握')
+  } else {
+    ElMessage.warning('没有可导出的内容')
+  }
 }
 
 onMounted(async () => {
@@ -386,23 +389,16 @@ onMounted(async () => {
 </script>
 
 <template>
-  <div class="knowledge-container" ref="containerRef" v-loading="loading">
+  <div class="knowledge-container" v-loading="loading">
     <div class="container-header">
       <el-form inline label-width="80" :model="searchModel" class="select-box">
         <el-form-item label="课程" prop="courseId">
-          <el-select size="large" placeholder="选择课程" style="width: 180px" v-model="searchModel.courseId"
-            @change="handleSearch">
+          <el-select size="large" placeholder="选择课程" style="width: 180px" v-model="searchModel.courseId">
             <el-option v-for="item in courseOptions" :key="item.id" :label="item.name" :value="item.id" />
           </el-select>
         </el-form-item>
       </el-form>
       <div class="export-btns">
-        <!-- <el-button size="large" type="success" @click="handleSearch" style="margin-right: 10px;">
-          刷新
-          <template #icon>
-            <i class="fas fa-sync-alt"></i>
-          </template>
-</el-button> -->
         <el-button-group>
           <el-button size="large" type="primary" :icon="Picture" @click="handleExportImage">导出图片</el-button>
           <el-button size="large" @click="handleExportPDF">
@@ -415,133 +411,100 @@ onMounted(async () => {
       </div>
     </div>
 
-    <el-row :gutter="20" style="margin-top: 20px;">
-      <el-col :span="24">
-        <el-card shadow="hover">
-          <template #header>
-            <div class="card-header">
-              <span>🤖 AI 知识点分析</span>
-              <el-button size="small" type="primary" @click="refreshKnowledgeAiAnalysis" :loading="knowledgeAiLoading">
-                <i class="fas fa-sync-alt"></i> 刷新分析
-              </el-button>
-            </div>
-          </template>
-          <div v-loading="knowledgeAiLoading">
-            <AiAnalysis :ai-analysis="knowledgeAiAnalysis" />
-          </div>
-        </el-card>
-      </el-col>
-    </el-row>
-
-    <!-- 统计卡片 -->
-    <div style="margin-top: 20px;">
-      <el-row :gutter="20">
-        <el-col :span="6" v-for="item in statBoxes" :key="item.title">
-          <StatBox :title="item.title" :stat-num="item.statNum" :rate="item.rate" />
-        </el-col>
-      </el-row>
-    </div>
-
-    <!-- 知识点树形结构 -->
-    <div class="knowledge-list">
+    <div ref="exportContentRef" class="export-content">
       <el-row :gutter="20" style="margin-top: 20px;">
         <el-col :span="24">
           <el-card shadow="hover">
-            <el-tree :data="treeData" node-key="id" :highlight-current="true" :default-expand-all="true"
-              @node-click="handleNodeClick">
-              <template #default="{ node, data }">
-                <div class="custom-tree-node">
-                  <!-- 展开/折叠图标 -->
-                  <i :class="[
-                    'node-icon',
-                    node.expanded ? 'fas fa-chevron-down' : 'fas fa-chevron-right'
-                  ]" :style="node.level === 2 ? 'font-size: 8px' : ''"></i>
+            <template #header>
+              <div class="card-header">
+                <span>🤖 AI 知识点分析</span>
+                <el-button size="small" type="primary" @click="refreshKnowledgeAiAnalysis"
+                  :loading="knowledgeAiLoading">
+                  <i class="fas fa-sync-alt"></i> 刷新分析
+                </el-button>
+              </div>
+            </template>
+            <div v-loading="knowledgeAiLoading">
+              <AiAnalysis :ai-analysis="knowledgeAiAnalysis" />
+            </div>
+          </el-card>
+        </el-col>
+      </el-row>
 
-                  <!-- 节点标签 -->
-                  <span class="node-label">{{ node.label }}</span>
+      <!-- 统计卡片 -->
+      <div style="margin-top: 20px;">
+        <el-row :gutter="20">
+          <el-col :span="6" v-for="item in statBoxes" :key="item.title">
+            <StatBox :title="item.title" :stat-num="item.statNum" :rate="item.rate" />
+          </el-col>
+        </el-row>
+      </div>
 
-                  <span v-if="node.level === 1" class="node-desc">
-                    整体掌握度
-                  </span>
+      <!-- 知识点树形结构 -->
+      <div class="knowledge-list">
+        <el-row :gutter="20" style="margin-top: 20px;">
+          <el-col :span="24">
+            <el-card shadow="hover">
+              <el-tree :data="treeData" node-key="id" :highlight-current="true" :default-expand-all="true"
+                @node-click="handleNodeClick">
+                <template #default="{ node, data }">
+                  <div class="custom-tree-node">
+                    <!-- 展开/折叠图标 -->
+                    <i :class="[
+                      'node-icon',
+                      node.expanded ? 'fas fa-chevron-down' : 'fas fa-chevron-right'
+                    ]" :style="node.level === 2 ? 'font-size: 8px' : ''"></i>
 
-                  <!-- 掌握度徽章（仅子节点显示） -->
-                  <span v-if="node.level === 2 && data.masteryLevel"
-                    :class="['mastery-badge', getMasteryClass(data.masteryLevel)]">
-                    {{ getMasteryText(data.masteryLevel) }}
-                  </span>
+                    <!-- 节点标签 -->
+                    <span class="node-label">{{ node.label }}</span>
 
-                  <!-- 掌握度百分比 -->
-                  <span v-if="data.masteryRate !== undefined" class="percentage">
-                    {{ data.masteryRate }}%
-                  </span>
+                    <span v-if="node.level === 1" class="node-desc">
+                      整体掌握度
+                    </span>
 
-                  <!-- 进度条 -->
-                  <div v-if="data.masteryRate !== undefined" class="progress-bar">
-                    <div class="progress-fill" :style="{
-                      width: `${data.masteryRate}%`,
-                      background: getProgressColor(data.masteryRate)
-                    }">
+                    <!-- 掌握度徽章（仅子节点显示） -->
+                    <span v-if="node.level === 2 && data.masteryLevel"
+                      :class="['mastery-badge', getMasteryClass(data.masteryLevel)]">
+                      {{ getMasteryText(data.masteryLevel) }}
+                    </span>
+
+                    <!-- 掌握度百分比 -->
+                    <span v-if="data.masteryRate !== undefined" class="percentage">
+                      {{ data.masteryRate }}%
+                    </span>
+
+                    <!-- 进度条 -->
+                    <div v-if="data.masteryRate !== undefined" class="progress-bar">
+                      <div class="progress-fill" :style="{
+                        width: `${data.masteryRate}%`,
+                        background: getProgressColor(data.masteryRate)
+                      }">
+                      </div>
                     </div>
                   </div>
-                </div>
-              </template>
-            </el-tree>
-          </el-card>
-        </el-col>
-      </el-row>
-    </div>
-
-    <!-- 图表区域 -->
-    <div class="echart-container" style="margin-top: 20px;">
-      <el-row :gutter="20">
-        <el-col :span="12">
-          <el-card shadow="hover">
-            <EChart :options="donutOption" height="400px" />
-          </el-card>
-        </el-col>
-        <el-col :span="12">
-          <el-card shadow="hover">
-            <EChart :options="radarOption" height="400px" />
-          </el-card>
-        </el-col>
-      </el-row>
-    </div>
-
-    <!-- 个性化学习资源推荐 -->
-    <!-- <div class="recommendation-source" style="margin-top: 20px;">
-      <el-card shadow="hover" header="个性化学习资源推荐">
-        <el-row :gutter="20">
-          <el-col v-for="item in recommendations" :key="item.id" :xs="24" :sm="12" :md="6">
-            <el-card shadow="hover" class="recom-card">
-              <template #header>
-                <div class="recom-header">
-                  <el-tag size="small"
-                    :type="item.difficulty === '困难' ? 'danger' : item.difficulty === '中等' ? 'warning' : 'success'">
-                    {{ item.type }}
-                  </el-tag>
-                  <el-tag size="small" type="info">{{ item.difficulty }}</el-tag>
-                </div>
-                <h3 class="recom-title">{{ item.title }}</h3>
-              </template>
-              <div class="recom-body">
-                <el-progress type="dashboard" :percentage="item.match"
-                  :color="item.match >= 85 ? '#67C23A' : '#E6A23C'" />
-                <p class="match-text">匹配度: {{ item.match }}%</p>
-              </div>
-              <div class="recom-footer">
-                <el-button type="primary" link>查看详情</el-button>
-                <el-button type="success" link>开始学习</el-button>
-              </div>
+                </template>
+              </el-tree>
             </el-card>
           </el-col>
         </el-row>
-        <el-row v-if="recommendations.length === 0" style="text-align: center; padding: 40px;">
-          <el-col :span="24">
-            <p>暂无推荐资源</p>
+      </div>
+
+      <!-- 图表区域 -->
+      <div class="echart-container" style="margin-top: 20px;">
+        <el-row :gutter="20">
+          <el-col :span="12">
+            <el-card shadow="hover">
+              <EChart :options="donutOption" height="400px" />
+            </el-card>
+          </el-col>
+          <el-col :span="12">
+            <el-card shadow="hover">
+              <EChart :options="radarOption" height="400px" />
+            </el-card>
           </el-col>
         </el-row>
-      </el-card>
-    </div> -->
+      </div>
+    </div>
 
     <KnowledgeDetail v-model:visible="detailDrawerVisible" :current-node="selectedNode" />
   </div>
@@ -571,141 +534,109 @@ onMounted(async () => {
     }
   }
 
-  .knowledge-list {
-    .custom-tree-node {
-      display: flex;
-      align-items: center;
-      gap: 12px;
-      width: 100%;
-      flex-wrap: wrap;
+  .export-content {
+    background: #f5f7fa;
+    padding: 20px;
+    border-radius: 16px;
 
-      .node-icon {
-        font-size: 12px;
-        color: #6b7280;
-        transition: transform 0.2s;
 
-        &.fa-circle {
-          font-size: 8px;
-        }
-      }
-
-      .node-label {
-        flex: 1;
-        font-size: 14px;
-        color: #1f2937;
-        min-width: 120px;
-      }
-
-      .node-desc {
-        font-size: 0.9rem;
-        font-weight: 600;
-        color: #6b7280;
-      }
-
-      .mastery-badge {
-        padding: 2px 10px;
-        border-radius: 40px;
-        font-size: 0.75rem;
-        font-weight: 500;
-
-        &.good {
-          background: #dcfce7;
-          color: #166534;
-        }
-
-        &.warning {
-          background: #fff3cd;
-          color: #856404;
-        }
-
-        &.poor {
-          background: #fee2e2;
-          color: #991b1b;
-        }
-      }
-
-      .percentage {
-        font-size: 13px;
-        color: #6b7280;
-        min-width: 45px;
-        text-align: right;
-      }
-
-      .progress-bar {
-        flex: 1;
-        height: 8px;
-        background: #e2e8f0;
-        border-radius: 10px;
-        overflow: hidden;
-        min-width: 100px;
-
-        .progress-fill {
-          height: 100%;
-          border-radius: 10px;
-          transition: width 0.3s ease;
-        }
-      }
-    }
-
-    :deep(.el-tree) {
-      background: transparent;
-      padding: 20px 28px;
-
-      .el-tree-node__expand-icon {
-        display: none;
-      }
-
-      .el-tree-node__content {
-        height: auto;
-        padding: 8px 0;
-
-        &:hover {
-          background-color: #f5f7fa;
-        }
-      }
-    }
-  }
-
-  .recommendation-source {
-    .recom-card {
-      text-align: center;
-      height: 100%;
-
-      .recom-header {
+    .knowledge-list {
+      .custom-tree-node {
         display: flex;
-        justify-content: space-between;
-        margin-bottom: 10px;
-      }
+        align-items: center;
+        gap: 12px;
+        width: 100%;
+        flex-wrap: wrap;
 
-      .recom-title {
-        margin-top: 10px;
-        font-size: 14px;
-        height: 40px;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        display: -webkit-box;
-        -webkit-line-clamp: 2;
-        -webkit-box-orient: vertical;
-      }
+        .node-icon {
+          font-size: 12px;
+          color: #6b7280;
+          transition: transform 0.2s;
 
-      .recom-body {
-        padding: 10px 0;
+          &.fa-circle {
+            font-size: 8px;
+          }
+        }
 
-        .match-text {
-          margin-top: 10px;
-          color: #67C23A;
+        .node-label {
+          flex: 1;
+          font-size: 14px;
+          color: #1f2937;
+          min-width: 120px;
+        }
+
+        .node-desc {
+          font-size: 0.9rem;
+          font-weight: 600;
+          color: #6b7280;
+        }
+
+        .mastery-badge {
+          padding: 2px 10px;
+          border-radius: 40px;
+          font-size: 0.75rem;
           font-weight: 500;
+
+          &.good {
+            background: #dcfce7;
+            color: #166534;
+          }
+
+          &.warning {
+            background: #fff3cd;
+            color: #856404;
+          }
+
+          &.poor {
+            background: #fee2e2;
+            color: #991b1b;
+          }
+        }
+
+        .percentage {
+          font-size: 13px;
+          color: #6b7280;
+          min-width: 45px;
+          text-align: right;
+        }
+
+        .progress-bar {
+          flex: 1;
+          height: 8px;
+          background: #e2e8f0;
+          border-radius: 10px;
+          overflow: hidden;
+          min-width: 100px;
+
+          .progress-fill {
+            height: 100%;
+            border-radius: 10px;
+            transition: width 0.3s ease;
+          }
         }
       }
 
-      .recom-footer {
-        border-top: 1px solid var(--el-border-color);
-        padding-top: 10px;
-        display: flex;
-        justify-content: space-between;
+      :deep(.el-tree) {
+        background: transparent;
+        padding: 20px 28px;
+
+        .el-tree-node__expand-icon {
+          display: none;
+        }
+
+        .el-tree-node__content {
+          height: auto;
+          padding: 8px 0;
+
+          &:hover {
+            background-color: #f5f7fa;
+          }
+        }
       }
     }
   }
+
+
 }
 
 // 响应式

@@ -10,7 +10,7 @@ import { ElMessage } from 'element-plus'
 import StatBox from '../dashboard/component/stat-box.vue'
 import AiAnalysis from '@/components/AiAnalysis.vue'
 
-const containerRef = ref(null)
+const exportContentRef = ref(null)
 const authStore = useAuthStore()
 const loading = ref(false)
 const userInfo = ref(null)
@@ -390,11 +390,19 @@ const handleSearch = () => {
 }
 
 const handleExportImage = () => {
-  exportToImage(containerRef.value, '成绩分析')
+  if (exportContentRef.value) {
+    exportToImage(exportContentRef.value, '成绩分析')
+  } else {
+    ElMessage.warning('没有可导出的内容')
+  }
 }
 
 const handleExportPDF = () => {
-  exportToPDF(containerRef.value, '成绩分析')
+  if (exportContentRef.value) {
+    exportToPDF(exportContentRef.value, '成绩分析')
+  } else {
+    ElMessage.warning('没有可导出的内容')
+  }
 }
 
 // 监听课程变化，更新成绩趋势
@@ -413,7 +421,7 @@ onMounted(async () => {
 </script>
 
 <template>
-  <div class="grade-analysis" ref="containerRef" v-loading="loading">
+  <div class="grade-analysis" v-loading="loading">
     <el-row style="margin-top: 20px;margin-bottom: 20px;">
       <el-col :span="24">
         <el-card shadow="always">
@@ -457,17 +465,19 @@ onMounted(async () => {
       <div class="content-header">
         <h4><i class="fas fa-list"></i> 近期考试</h4>
       </div>
-      <div style="margin-bottom:20px">
-        <el-row :gutter="20">
-          <el-col :span="6" v-for="item in statusCardData" :key="item.title">
-            <StatBox :title="item.title" :stat-num="item.statNum" :rate="item.rate" />
-          </el-col>
-        </el-row>
-      </div>
-      <div class="container-content">
-        <el-card shadow="always">
-          <EChart :options="gradeTrendOption" height="400px" />
-        </el-card>
+      <div ref="exportContentRef" class="export-content">
+        <div style="margin-bottom:20px">
+          <el-row :gutter="20">
+            <el-col :span="6" v-for="item in statusCardData" :key="item.title">
+              <StatBox :title="item.title" :stat-num="item.statNum" :rate="item.rate" />
+            </el-col>
+          </el-row>
+        </div>
+        <div class="container-content">
+          <el-card shadow="always">
+            <EChart :options="gradeTrendOption" height="400px" />
+          </el-card>
+        </div>
       </div>
       <div class="content-body">
         <el-empty v-if="examList.length === 0 && !loading" description="暂无考试数据" />
@@ -475,32 +485,6 @@ onMounted(async () => {
           :handleClick="handleExamClick" />
       </div>
     </div>
-    <!-- <div class="container-content">
-      <el-card shadow="always">
-        <EChart :options="gradeChartOption" height="400px" />
-        <template #footer>
-          <div class="echart-desc">
-            <div class="echart-desc-item">
-              平均分：<p>{{ gradeDistribution.stats.average }}分</p>
-            </div>
-            <div class="echart-desc-item">
-              最高分：<p>{{ gradeDistribution.stats.highest }}分</p>
-            </div>
-            <div class="echart-desc-item">
-              最低分：<p>{{ gradeDistribution.stats.lowest }}分</p>
-            </div>
-            <div class="echart-desc-item">
-              及格率：<p>{{ gradeDistribution.stats.passRate }}%</p>
-            </div>
-            <div class="echart-desc-item">
-              优秀率：<p>{{ gradeDistribution.stats.excellentRate }}%</p>
-            </div>
-          </div>
-        </template>
-      </el-card>
-    </div> -->
-
-
 
     <!-- 考试详情弹窗 -->
     <el-drawer v-model="detailDrawerVisible" title="考试详情" direction="rtl" size="800px">

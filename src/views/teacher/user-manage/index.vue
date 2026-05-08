@@ -342,7 +342,7 @@ const fetchStatistics = async () => {
 const fetchStudentDashboard = async (studentId) => {
   try {
     const res = await dashboardApi.getStudentDashbord(studentId)
-    await fetchAiAnalysis(studentId, false)
+    fetchAiAnalysis(studentId, false)
     if (res && res.data) {
       currentStudentDashboardData.value = res.data
     }
@@ -727,7 +727,7 @@ onMounted(async () => {
         <StatsCard type="frozen" icon="fa-user-lock" title="低活跃人数" :value="statistics.lowActivityCount" />
       </el-col>
       <el-col :span="6">
-        <StatsCard type="pending" icon="fa-user-clock" title="平均考试成绩" :value="statistics.avgExamScore" />
+        <StatsCard type="pending" icon="fa-user-clock" title="男生人数" :value="statistics.maleCount" />
       </el-col>
     </el-row>
 
@@ -1008,17 +1008,14 @@ onMounted(async () => {
           </el-descriptions-item>
         </el-descriptions>
         <el-row :gutter="20" style="margin-top: 20px;">
-          <el-col :span="6">
+          <el-col :span="8">
             <StatBox icon="fa-book-open" title="活动得分" :stat-num="currentStudentDashboardData.activityScore" />
           </el-col>
-          <el-col :span="6">
+          <el-col :span="8">
             <StatBox icon="fa-clock" title="作业平均分" :stat-num="currentStudentDashboardData.homeworkAvgScore" />
           </el-col>
-          <el-col :span="6">
+          <el-col :span="8">
             <StatBox icon="fa-pencil-alt" title="平均分" :stat-num="currentStudentDashboardData.avgScore" />
-          </el-col>
-          <el-col :span="6">
-            <StatBox icon="fa-trophy" title="作业完成数" :stat-num="currentStudentDashboardData.completedHomework" />
           </el-col>
         </el-row>
 

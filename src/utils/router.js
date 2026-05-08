@@ -1,6 +1,7 @@
 import { useAuthStore, useMenuStore } from '@/stores/index.js'
 
 const modules = import.meta.glob('../views/**/*.vue')
+const RESERVED_ROUTE_NAMES = ['layout', 'Login', 'NotFound']
 
 /**
  * 将后端菜单数据转换为前端路由格式
@@ -49,9 +50,10 @@ export function transformRoutes(backendRoutes, basePath = '') {
         children: menu.children ? transformRoutes(menu.children, fullPath) : [],
       }
     } else {
+      console.log('匹配路由', menu)
       return {
         path: fullPath,
-        name: menu.name || fullPath.replace(/\//g, '-').substring(1),
+        name: menu?.path.replace(/^\//, '') || fullPath.replace(/\//g, '-').substring(1),
         meta: {
           title: menu.meta?.title || menu.name,
           icon: menu.icon,
@@ -62,6 +64,7 @@ export function transformRoutes(backendRoutes, basePath = '') {
         },
         component:
           modules[`../views${fullPath}/index.vue`] ||
+          modules[`../views/${menu.component}`] ||
           modules[`../views/${authStore.userRole}/${fullPath}/index.vue`] ||
           (isParentRoute
             ? () => import('@/views/emptyRouter/index.vue')
@@ -80,13 +83,11 @@ export async function setupDynamicRoutes(router) {
     // 生成动态路由
     await menuStore.generateRoutes(authStore.userRole)
     // 清除可能存在的旧路由
-    // const reservedRoutes = ['login', '404']
-
-    // router.getRoutes().forEach((route) => {
-    //   if (!reservedRoutes.includes(route.name)) {
-    //     router.removeRoute(route.name)
-    //   }
-    // })
+    router.getRoutes().forEach((route) => {
+      if (!RESERVED_ROUTE_NAMES.includes(route.name)) {
+        router.removeRoute(route.name)
+      }
+    })
 
     menuStore.dynamicRoutes.forEach((newRoute) => {
       if (!router.getRoutes().some((r) => r.path === newRoute.path)) {
