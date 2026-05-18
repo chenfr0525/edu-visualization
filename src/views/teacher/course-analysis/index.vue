@@ -1137,9 +1137,6 @@ onMounted(() => {
             <el-option v-for="kp in flatKnowledgePoints" :key="kp.id" :label="kp.name" :value="kp.id" />
           </el-select>
         </el-form-item>
-        <el-form-item label="层级">
-          <el-input-number v-model="kpForm.level" :min="0" :max="10" style="width: 100%" />
-        </el-form-item>
         <el-form-item label="排序">
           <el-input-number v-model="kpForm.sortOrder" :min="0" :max="999" style="width: 100%" />
         </el-form-item>

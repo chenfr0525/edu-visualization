@@ -1443,7 +1443,7 @@ onMounted(async () => {
           @clear="loadExamScoreData" @keyup.enter="loadExamScoreData" />
         <!-- 成绩查看表格 -->
         <el-table :data="scoreList" stripe border height="500px" style="width: 100%">
-          <el-table-column prop="classRank" label="排名" width="120" sortable />
+          <!-- <el-table-column prop="classRank" label="排名" width="120" sortable /> -->
           <el-table-column prop="studentNo" label="学号" width="120" />
           <el-table-column prop="studentName" label="姓名" width="100" />
           <el-table-column prop="score" label="成绩" width="100" />
@@ -1630,11 +1630,11 @@ onMounted(async () => {
               </h4>
               <h4 style="display: flex;align-items: center; height: 20px;">最高分:<p>{{ analysisDetailData?.highestScore ||
                 '-'
-              }}</p>
+                  }}</p>
               </h4>
               <h4 style="display: flex;align-items: center; height: 20px;">最低分:<p>{{ analysisDetailData?.lowestScore ||
                 '-'
-              }}</p>
+                  }}</p>
               </h4>
             </div>
           </el-descriptions-item>

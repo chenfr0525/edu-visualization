@@ -187,8 +187,8 @@ const loadAllData = async () => {
       loadKnowledgeTree(),
       loadRadarData(),
       loadStats(),
-      loadKnowledgeAiAnalysis()
     ])
+    loadKnowledgeAiAnalysis()
   } catch (error) {
     console.error('加载数据失败:', error)
     ElMessage.error('数据加载失败')

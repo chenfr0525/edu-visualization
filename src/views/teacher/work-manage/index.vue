@@ -307,7 +307,7 @@ const confirmHomeworkGradeImport = async () => {
   }
 
   try {
-    await ElMessageBox.confirm(`确认将 ${homeworkGradeParseResult.value.data.length} 条成绩导入到作业「${selectedHomeworkGradeInfo.value?.name}」吗？`, '确认操作', {
+    await ElMessageBox.confirm(`确认将 ${homeworkGradeParseResult.value.data.length} 条成绩导入到作业吗？`, '确认操作', {
       confirmButtonText: '确认',
       cancelButtonText: '取消',
       type: 'warning'
@@ -762,14 +762,15 @@ const submitHomework = async () => {
 }
 
 const viewAnalysis = async (homework) => {
-  await fetchHomeworkAiAnalysis(homework?.id)
-  analysisDialogVisible.value = true
   const data = await fetchHomeworkAnalysis(homework?.id)
   analysisData.value = data
+  analysisDialogVisible.value = true
+  fetchHomeworkAiAnalysis(homework?.id)
   setTimeout(() => {
     initAnalysisCharts()
   }, 100)
 }
+
 const scoreDistributionArray = computed(() => {
   if (!analysisData.value.scoreDistribution) return []
 

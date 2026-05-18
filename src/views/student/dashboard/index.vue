@@ -316,7 +316,7 @@ onMounted(async () => {
           <StatBox icon="fa-clock" title="作业平均分" :stat-num="statsData.homeworkAvgScore" />
         </el-col>
         <el-col :span="6">
-          <StatBox icon="fa-pencil-alt" title="平均分" :stat-num="statsData.avgScore" />
+          <StatBox icon="fa-pencil-alt" title="考试平均分" :stat-num="statsData.avgScore" />
         </el-col>
         <el-col :span="6">
           <StatBox icon="fa-trophy" title="班级排名" :stat-num="statsData.latestRank" />

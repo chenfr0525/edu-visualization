@@ -96,7 +96,7 @@ onMounted(async () => {
           </el-icon>
           <el-breadcrumb separator="/" v-if="!appStore.isMobile">
             <el-breadcrumb-item :to="{ path: '/' }">首页</el-breadcrumb-item>
-            <el-breadcrumb-item>{{ route.name || route.meta.title }}</el-breadcrumb-item>
+            <el-breadcrumb-item>{{ route.meta.title || route.name }}</el-breadcrumb-item>
           </el-breadcrumb>
         </div>
         <div class="header-right">
